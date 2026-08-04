@@ -43,8 +43,15 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
     panicStack[i].sp = 0;
   }
 
-  // Copied from components/esp_system/port/arch/riscv/panic_arch.c
-  uint32_t sp = (uint32_t)((RvExcFrame*)frame)->sp;
+  // ESP32-C3 uses a RISC-V exception frame; X4 Pro's ESP32-S3 uses Xtensa.
+#if defined(__riscv)
+  uint32_t sp = static_cast<uint32_t>(reinterpret_cast<const RvExcFrame*>(frame)->sp);
+#elif defined(__XTENSA__)
+  uint32_t sp = static_cast<uint32_t>(reinterpret_cast<const XtExcFrame*>(frame)->a1);
+#else
+  __real_panic_print_backtrace(frame, core);
+  return;
+#endif
   // Exception frames are not trustworthy by definition. Reading a fixed 1 KiB
   // from a corrupt SP can fault again inside the panic handler and lose the
   // original crash report. The IDF helper validates alignment and that the

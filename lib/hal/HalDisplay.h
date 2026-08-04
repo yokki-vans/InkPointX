@@ -29,7 +29,7 @@ class HalDisplay {
   // not start in that state.
   bool begin(bool seamless = false);
 
-  bool isReady() const { return einkDisplay.panelReady(); }
+  bool isReady() const { return ready; }
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
@@ -96,6 +96,7 @@ class HalDisplay {
 
   EInkDisplay einkDisplay;
   EInkRefreshPolicy refreshPolicy;
+  bool ready = false;
 };
 
 extern HalDisplay display;

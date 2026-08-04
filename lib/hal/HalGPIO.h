@@ -5,20 +5,6 @@
 
 #include <atomic>
 
-// Display SPI pins (custom pins for XteinkX4, not hardware SPI defaults)
-#define EPD_SCLK 8   // SPI Clock
-#define EPD_MOSI 10  // SPI MOSI (Master Out Slave In)
-#define EPD_CS 21    // Chip Select
-#define EPD_DC 4     // Data/Command
-#define EPD_RST 5    // Reset
-#define EPD_BUSY 6   // Busy
-
-#define SPI_MISO 7  // SPI MISO, shared between SD card and display (Master In Slave Out)
-
-#define BAT_GPIO0 0  // Battery voltage
-
-#define UART0_RXD 20  // Used for USB connection detection
-
 // Xteink X3 Hardware
 #define X3_I2C_SDA 20
 #define X3_I2C_SCL 0
@@ -75,10 +61,14 @@ class HalGPIO {
   unsigned long x3PowerLastPollMs = 0;
 
  public:
-  enum class DeviceType : uint8_t { X4, X3 };
+  enum class DeviceType : uint8_t { X4, X3, X4Pro };
 
  private:
+#if FREEINK_DEVICE_X4PRO
+  DeviceType _deviceType = DeviceType::X4Pro;
+#else
   DeviceType _deviceType = DeviceType::X4;
+#endif
 
   void updatePowerState();
 
@@ -88,6 +78,7 @@ class HalGPIO {
   // Inline device type helpers for cleaner downstream checks
   inline bool deviceIsX3() const { return _deviceType == DeviceType::X3; }
   inline bool deviceIsX4() const { return _deviceType == DeviceType::X4; }
+  inline bool deviceIsX4Pro() const { return _deviceType == DeviceType::X4Pro; }
   bool isXteinkDevice() const;
 
   // Start button GPIO and setup SPI for screen and SD card
@@ -114,6 +105,19 @@ class HalGPIO {
 #endif
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
+  bool hasTouch() const;
+  bool hasHomeKey() const;
+  bool wasHomeKeyPressed() const;
+  bool wasHomeKeyTapped() const;
+  bool wasHomeKeyLongPressed() const;
+  bool wasTouchTap(float& nx, float& ny) const;
+  bool wasTouchDown(float& nx, float& ny) const;
+  bool wasTouchReleased() const;
+  bool isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) const;
+  bool isTouchHeldAt(float& nx, float& ny) const;
+  unsigned long lastTouchHeldMs() const;
+  bool wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEnd) const;
+  bool wasTouchActivity() const;
 
   // Verify power button was held long enough after wakeup.
   // Returns false when the device should immediately return to sleep.

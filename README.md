@@ -355,6 +355,15 @@ Development build:
 pio run -e default
 ```
 
+XTEINK X4 Pro test build (ESP32-S3; use a project path without spaces):
+
+```bash
+pio run -e x4pro
+```
+
+Hardware notes and the bring-up checklist are in
+[`docs/X4_PRO_SUPPORT_RU.md`](docs/X4_PRO_SUPPORT_RU.md).
+
 Release-style binary:
 
 ```bash

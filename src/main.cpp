@@ -1,10 +1,12 @@
 #include <Arduino.h>
+#include <BoardConfig.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
+#include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -15,6 +17,7 @@
 #include <Memory.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <esp_ota_ops.h>
 #include <esp_task_wdt.h>
@@ -60,8 +63,14 @@ FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 static unsigned long allowSleepAt = 0;
+static unsigned long lastX4ProPowerClickAt = 0;
 static bool bootCoreInitialized = false;
 static bool displayInitFailed = false;
+
+namespace {
+constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
+constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 400;
+}  // namespace
 
 // Fonts
 EpdFont notoserif14RegularFont(&notoserif_14_regular);
@@ -290,6 +299,26 @@ void waitForPowerRelease() {
   }
 }
 
+bool handleX4ProFrontlightDoubleClick() {
+  if (!BoardConfig::isX4Pro() || !gpio.wasReleased(HalGPIO::BTN_POWER)) return false;
+
+  const unsigned long now = millis();
+  if (gpio.getPowerButtonHeldTime() > X4PRO_POWER_CLICK_MAX_HOLD_MS) {
+    lastX4ProPowerClickAt = 0;
+    return false;
+  }
+  if (lastX4ProPowerClickAt == 0 || now - lastX4ProPowerClickAt > X4PRO_POWER_DOUBLE_CLICK_MS) {
+    lastX4ProPowerClickAt = now;
+    return false;
+  }
+
+  lastX4ProPowerClickAt = 0;
+  Frontlight.toggle();
+  gpio.consumeInputEvent();
+  LOG_INF("LIGHT", "Frontlight toggled %s by power-button double-click", Frontlight.isOn() ? "on" : "off");
+  return true;
+}
+
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
 
 static void saveSleepFrameBuffer() {
@@ -347,6 +376,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   }
 
   halTiltSensor.deepSleep();
+  Frontlight.prepareForSleep();
   display.deepSleep();
   BootDiag::markCleanShutdown(fromTimeout ? BootDiag::Shutdown::IdleTimeout : BootDiag::Shutdown::PowerButton);
   LOG_DBG("MAIN", "Entering deep sleep");
@@ -355,6 +385,19 @@ void enterDeepSleep(bool fromTimeout = false) {
 }
 
 bool setupDisplayAndFonts(bool seamless = false) {
+#if !FREEINK_MCU_C3
+  // X4 Pro production batches use either SSD1677 or UC8179. Resolve the
+  // controller before FreeInkDisplay selects its driver; the C3 X3/X4 path has
+  // already done this in HalGPIO::begin and must not be probed twice.
+  static bool controllerResolved = false;
+  if (!controllerResolved) {
+    controllerResolved = true;
+    if (freeink::applyXteinkDisplayController()) {
+      LOG_INF("MAIN", "Panel controller: UltraChip UC81xx variant detected");
+    }
+  }
+#endif
+
   bool displayReady = false;
   for (int attempt = 1; attempt <= 3 && !displayReady; ++attempt) {
     displayReady = display.begin(seamless);
@@ -409,6 +452,10 @@ bool setupDisplayAndFonts(bool seamless = false) {
 }
 
 void setup() {
+  // Assert board-level rail/latch pins before touching serial, I2C, SD or the
+  // display. X4 Pro requires GPIO1 high before its GT911/SD peripherals respond.
+  BoardConfig::holdPowerRails();
+
 #ifdef ENABLE_SERIAL_LOG
   // Earliest possible Serial setup. The 250 ms stall before begin() lets the
   // USB Serial/JTAG peripheral finish power-on and lets the host complete USB
@@ -434,8 +481,9 @@ void setup() {
   powerManager.begin();
   halTiltSensor.begin();
   halClock.begin();
+  Frontlight.begin();
 
-  LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
+  LOG_INF("MAIN", "Hardware: %s", BoardConfig::ACTIVE.name);
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
@@ -480,9 +528,11 @@ void setup() {
       gpio.update();
       delay(10);
     }
-    if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_POWER)) {
+    const bool recoverySideButton =
+        BoardConfig::isX4Pro() ? gpio.isPressed(HalGPIO::BTN_DOWN) : gpio.isPressed(HalGPIO::BTN_UP);
+    if (recoverySideButton && gpio.isPressed(HalGPIO::BTN_POWER)) {
       recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+      LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)", BoardConfig::isX4Pro() ? "DOWN" : "UP");
     }
   }
 
@@ -837,6 +887,25 @@ void loop() {
         // activity render path without changing UI state.
         activityManager.requestUpdate();
         LOG_DBG("MAIN", "Profile redraw requested");
+      } else if (cmd.startsWith("PROFILE_FRONTLIGHT")) {
+        // CMD:PROFILE_FRONTLIGHT[:brightness[:warmth]]. With no arguments it
+        // toggles the light. This is the deterministic bring-up route used by
+        // serial hardware tests before relying on touch/button gestures.
+        const int first = cmd.indexOf(':');
+        if (first < 0) {
+          Frontlight.toggle();
+        } else {
+          const int second = cmd.indexOf(':', first + 1);
+          const int level = cmd.substring(first + 1, second < 0 ? cmd.length() : second).toInt();
+          Frontlight.setBrightness(static_cast<uint8_t>(std::clamp(level, 0, 100)));
+          if (second >= 0) {
+            const int warmth = cmd.substring(second + 1).toInt();
+            Frontlight.setWarmth(static_cast<uint8_t>(std::clamp(warmth, 0, 100)));
+          }
+          Frontlight.setOn(true);
+        }
+        LOG_INF("LIGHT", "Profile route: on=%d level=%u warmth=%u", Frontlight.isOn(), Frontlight.brightness(),
+                Frontlight.warmth());
       } else if (cmd.startsWith("PROFILE_NAV_DOWN")) {
         // Inject a burst without waiting for panel BUSY so the input backlog
         // and frame coalescing path can be verified deterministically over USB.
@@ -876,7 +945,7 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || halTiltSensor.hadActivity() ||
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
       activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
@@ -905,6 +974,8 @@ void loop() {
     screenshotButtonsReleased = true;
     screenshotComboActive = false;
   }
+
+  if (handleX4ProFrontlightDoubleClick()) return;
 
   // Removed in 2.0.2: a critical-battery guard that force-slept the device
   // below 2%. Its premise was sound (a brownout mid-write is how settings

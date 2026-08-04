@@ -9,6 +9,7 @@
 
 HalGPIO gpio;
 
+#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
 namespace {
 constexpr char HW_NAMESPACE[] = "cphw";
 constexpr char NVS_KEY_DEV_OVERRIDE[] = "dev_ovr";  // 0=auto, 1=x4, 2=x3
@@ -80,8 +81,10 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
 }
 
 }  // namespace
+#endif
 
 void HalGPIO::begin() {
+#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   _deviceType = detectDeviceTypeWithFingerprint();
   BoardConfig::selectDevice(deviceIsX3() ? BoardConfig::Board::XteinkX3 : BoardConfig::Board::XteinkX4);
 
@@ -99,12 +102,16 @@ void HalGPIO::begin() {
     BoardConfig::releaseSdRail();
   }
 
-  SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
-  if (deviceIsX4()) {
-    pinMode(BAT_GPIO0, INPUT);
-    pinMode(UART0_RXD, INPUT);
-    const bool connected = BoardConfig::ACTIVE.usbDetect >= 0 && digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
-    lastUsbConnected.store(connected, std::memory_order_relaxed);
+  SPI.begin(BoardConfig::ACTIVE.display.sclk, BoardConfig::ACTIVE.sd.miso, BoardConfig::ACTIVE.display.mosi,
+            BoardConfig::ACTIVE.display.cs);
+#else
+  _deviceType = BoardConfig::isX4Pro() ? DeviceType::X4Pro : DeviceType::X4;
+#endif
+
+  if (BoardConfig::ACTIVE.batteryAdc >= 0) pinMode(BoardConfig::ACTIVE.batteryAdc, INPUT);
+  if (BoardConfig::ACTIVE.usbDetect >= 0) {
+    pinMode(BoardConfig::ACTIVE.usbDetect, INPUT);
+    lastUsbConnected.store(digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH, std::memory_order_relaxed);
   }
   inputMgr.begin();
 }
@@ -119,7 +126,39 @@ void HalGPIO::update() {
     if (inputMgr.wasPressed(button)) pressed |= mask;
     if (inputMgr.wasReleased(button)) released |= mask;
   }
+
+  // X4 Pro touch fallback for InkPointX's button-oriented activities. The
+  // native GT911 events are converted into the same queued logical navigation
+  // primitives, so every existing screen remains reachable while dedicated
+  // coordinate-aware touch screens can still read the raw methods below.
+  uint8_t touchButton = UINT8_MAX;
+  if (inputMgr.wasHomeKeyTapped()) {
+    touchButton = BTN_BACK;
+  } else if (inputMgr.wasHomeKeyLongPressed()) {
+    touchButton = BTN_CONFIRM;
+  } else {
+    float x0 = 0.0f;
+    float y0 = 0.0f;
+    float x1 = 0.0f;
+    float y1 = 0.0f;
+    if (inputMgr.wasSwipe(x0, y0, x1, y1)) {
+      const float dx = x1 - x0;
+      const float dy = y1 - y0;
+      touchButton = (abs(dx) >= abs(dy)) ? (dx < 0.0f ? BTN_DOWN : BTN_UP) : (dy < 0.0f ? BTN_DOWN : BTN_UP);
+    } else if (inputMgr.wasTouchTap(x0, y0)) {
+      touchButton = x0 < 0.33f ? BTN_UP : (x0 > 0.67f ? BTN_DOWN : BTN_CONFIRM);
+    }
+  }
   enqueueInputEdges(pressed, released);
+
+  if (touchButton <= BTN_POWER) {
+    const uint8_t mask = static_cast<uint8_t>(1U << touchButton);
+    // Queue the press first so enqueueInputEdges can fold the matching release
+    // into this exact click even when an older click for the same button is
+    // still waiting behind an e-ink refresh.
+    enqueueInputEdges(mask, 0);
+    enqueueInputEdges(0, mask);
+  }
   updatePowerState();
 }
 
@@ -189,14 +228,15 @@ bool HalGPIO::pendingInputIsNavigationOnly() const {
 void HalGPIO::enqueueSyntheticClick(const uint8_t buttonIndex) {
   if (buttonIndex > BTN_POWER) return;
   const uint8_t mask = static_cast<uint8_t>(1U << buttonIndex);
-  enqueueInputEdges(mask, mask);
+  enqueueInputEdges(mask, 0);
+  enqueueInputEdges(0, mask);
 }
 #endif
 
 void HalGPIO::updatePowerState() {
   usbStateChanged.store(false, std::memory_order_relaxed);
 
-  if (deviceIsX4()) {
+  if (!deviceIsX3()) {
     if (BoardConfig::ACTIVE.usbDetect < 0) return;
     const bool connected = digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
     const bool previous = lastUsbConnected.exchange(connected, std::memory_order_relaxed);
@@ -204,6 +244,7 @@ void HalGPIO::updatePowerState() {
     return;
   }
 
+#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   const unsigned long now = millis();
   if (x3PowerLastPollMs != 0 && (now - x3PowerLastPollMs) < X3_POWER_POLL_MS) return;
   x3PowerLastPollMs = now;
@@ -212,11 +253,12 @@ void HalGPIO::updatePowerState() {
   // the cell is useful for the icon only; it is explicitly not a cable-presence
   // signal (a full battery can report zero while still plugged in).
   static const BatteryMonitor battery;
-  bool charging = false;
-  if (!battery.readChargingChecked(charging)) {
+  const BatteryMonitor::Status status = battery.readStatus();
+  if (!status.chargingKnown) {
     x3PowerCandidateSamples = 0;
     return;  // transient I2C failure: retain the last known indication
   }
+  const bool charging = status.charging;
 
   if (!x3PowerSampleInitialized || charging != x3PowerCandidate) {
     x3PowerSampleInitialized = true;
@@ -230,6 +272,7 @@ void HalGPIO::updatePowerState() {
 
   const bool previous = lastUsbConnected.exchange(x3PowerCandidate, std::memory_order_relaxed);
   usbStateChanged.store(previous != x3PowerCandidate, std::memory_order_relaxed);
+#endif
 }
 
 bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged.load(std::memory_order_relaxed); }
@@ -244,11 +287,29 @@ bool HalGPIO::wasReleased(const uint8_t buttonIndex) const {
 bool HalGPIO::wasAnyReleased() const { return inputEventCount != 0 && inputEvents[inputEventHead].released != 0; }
 unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
 unsigned long HalGPIO::getPowerButtonHeldTime() const { return inputMgr.getPowerButtonHeldTime(); }
+bool HalGPIO::hasTouch() const { return inputMgr.hasTouch(); }
+bool HalGPIO::hasHomeKey() const { return BoardConfig::hasHomeKey(); }
+bool HalGPIO::wasHomeKeyPressed() const { return inputMgr.wasHomeKeyPressed(); }
+bool HalGPIO::wasHomeKeyTapped() const { return inputMgr.wasHomeKeyTapped(); }
+bool HalGPIO::wasHomeKeyLongPressed() const { return inputMgr.wasHomeKeyLongPressed(); }
+bool HalGPIO::wasTouchTap(float& nx, float& ny) const { return inputMgr.wasTouchTap(nx, ny); }
+bool HalGPIO::wasTouchDown(float& nx, float& ny) const { return inputMgr.wasTouchPressedAt(nx, ny); }
+bool HalGPIO::wasTouchReleased() const { return inputMgr.wasTouchReleased(); }
+bool HalGPIO::isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) const {
+  return inputMgr.isTouchTapCandidate(nx, ny, heldMs);
+}
+bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const { return inputMgr.isTouchHeldAt(nx, ny); }
+unsigned long HalGPIO::lastTouchHeldMs() const { return inputMgr.lastTouchHeldMs(); }
+bool HalGPIO::wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEnd) const {
+  return inputMgr.wasSwipe(nxStart, nyStart, nxEnd, nyEnd);
+}
+bool HalGPIO::wasTouchActivity() const { return inputMgr.wasTouchActivity(); }
 
 bool HalGPIO::isXteinkDevice() const {
   return BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3 ||
          BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3Uc8279 ||
-         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4;
+         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4 ||
+         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4Pro;
 }
 
 bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed) {
