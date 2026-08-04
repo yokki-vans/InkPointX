@@ -1,0 +1,93 @@
+InkPointX XTEINK X4 Pro — mandatory first field-test procedure
+==============================================================
+
+STATUS
+------
+This is an experimental app-only firmware image. It has not been validated on
+the specific physical device being tested. Do not use any other flashing tool,
+do not run erase-flash/erase-all, and never add --force.
+
+The package does not contain a bootloader, partition table, NVS, or factory
+image. The factory app1 remains in flash. Automatic rollback in the OEM
+bootloader has not been confirmed; recovery is performed in ROM download mode
+with the restore-stock command.
+
+The test firmware does not persist frontlight, Wi-Fi, or PHY calibration data in
+the OEM NVS partition. This is an intentional restriction to protect factory
+data. Its runtime guard rejects writes and erases to every flash partition except
+the otadata service partition.
+
+PREPARATION
+-----------
+1. Charge the device to at least 50%. Use a known-good short USB cable and a
+   direct computer USB port without a hub. Do not interrupt power.
+2. Install the pinned tools:
+   python3 -m pip install --upgrade "esptool>=5.3,<5.4"
+3. Check the versions:
+   esptool version
+   espefuse version
+   Both commands must report version 5.3.x.
+4. Enter ESP32-S3 ROM download mode by holding the GPIO0 navigation button while
+   resetting or powering on the device. Replace /dev/ttyACM0 below with the
+   actual serial port.
+
+STEP 1 — CREATE A COMPLETE 16 MB BACKUP
+---------------------------------------
+python3 x4pro_safe_flash.py backup \
+  --port /dev/ttyACM0 \
+  --output x4pro-backup
+
+If SAFETY STOP appears, do not continue. Save the complete terminal output.
+
+STEP 2 — INDEPENDENTLY VERIFY THE BACKUP AND ROM ACCESS
+-------------------------------------------------------
+Physically disconnect the USB cable, reconnect it, enter ROM download mode
+again, and run:
+
+python3 x4pro_safe_flash.py verify \
+  --port /dev/ttyACM0 \
+  --backup x4pro-backup
+
+Do not continue unless the command prints SECOND ROM SESSION VERIFIED.
+
+STEP 3 — INSTALL TO THE INACTIVE APP0 SLOT
+------------------------------------------
+Copy the InkPointX-X4Pro.bin hash from SHA256SUMS and run:
+
+python3 x4pro_safe_flash.py install \
+  --port /dev/ttyACM0 \
+  --backup x4pro-backup \
+  --firmware InkPointX-X4Pro.bin \
+  --firmware-sha256 PASTE_THE_64_CHARACTER_SHA256_HERE \
+  --confirm PRESERVE-FACTORY-APP1
+
+Before writing, the installer verifies the MCU, MAC address, 16 MB flash size,
+Secure Boot state, flash-encryption state, SECURE_VERSION eFuse, exact OEM
+partition layout, complete factory app1, and the firmware's SHA-256, header,
+checksum, and validation hash.
+
+It then writes app0 and verifies its full readback. Only after that succeeds does
+it write one previously inactive 4 KB otadata sector. The other valid sector
+remains available if power is lost during the metadata write.
+
+After INSTALL VERIFIED is printed, reset the device manually in the normal way.
+Capture the complete 115200-baud serial log. Do not disconnect power during the
+first 60 seconds. If the display does not update, do not repeat the installation:
+save the serial log and perform the recovery procedure below.
+
+RESTORE FACTORY APP1
+--------------------
+Enter ROM download mode again and run:
+
+python3 x4pro_safe_flash.py restore-stock \
+  --port /dev/ttyACM0 \
+  --backup x4pro-backup \
+  --confirm RESTORE-FACTORY-BOOT
+
+The command rechecks the MCU, MAC address, security eFuses, bootloader,
+partition table, NVS, and the complete factory app1. It selects app1 by writing
+only one inactive otadata sector. If power is lost, the previously active sector
+remains bootable.
+
+Never delete x4pro-backup. It contains the device's unique NVS data and must not
+be copied to a different X4 Pro.
