@@ -49,6 +49,13 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
+#if CONFIG_ESP_WIFI_NVS_ENABLED
+#error "X4 Pro field build must not persist Wi-Fi state in OEM NVS"
+#endif
+#if CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE
+#error "X4 Pro field build must not persist PHY calibration in OEM NVS"
+#endif
+
 static_assert(FREEINK_DEVICE_X4PRO && !FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4,
               "dev-x4pro-test must compile only the XTEINK X4 Pro profile");
 static_assert(BoardConfig::DEFAULT_DEVICE.board == BoardConfig::Board::XteinkX4Pro);
@@ -60,6 +67,12 @@ static_assert(BoardConfig::DEFAULT_DEVICE.input.up == 0 && BoardConfig::DEFAULT_
               BoardConfig::DEFAULT_DEVICE.input.power == 3);
 static_assert(BoardConfig::DEFAULT_DEVICE.sdmmc.clk == 41 && BoardConfig::DEFAULT_DEVICE.sdmmc.cmd == 42 &&
               BoardConfig::DEFAULT_DEVICE.sdmmc.d0 == 40 && BoardConfig::DEFAULT_DEVICE.sdmmc.busWidth == 1);
+static_assert(BoardConfig::DEFAULT_DEVICE.sd.powerEnable == 5 && !BoardConfig::DEFAULT_DEVICE.sd.powerActiveHigh);
+static_assert(BoardConfig::DEFAULT_DEVICE.touch.sda == 39 && BoardConfig::DEFAULT_DEVICE.touch.scl == 38 &&
+              BoardConfig::DEFAULT_DEVICE.touch.irq == 10 && BoardConfig::DEFAULT_DEVICE.touch.reset == 4 &&
+              BoardConfig::DEFAULT_DEVICE.touch.powerEnable == 2 &&
+              !BoardConfig::DEFAULT_DEVICE.touch.powerEnableActiveHigh);
+static_assert(BoardConfig::DEFAULT_DEVICE.frontlight.gpio == 8 && BoardConfig::DEFAULT_DEVICE.frontlight.gpioWarm == 9);
 static_assert(BoardConfig::DEFAULT_DEVICE.power.latch0 == 1);
 
 // Native PDF parsing has legitimate recursive dictionary/array paths and can
@@ -371,7 +384,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
 
-  // X4 loses its internal clock when the battery latch removes power. Keep the
+  // X4 Pro loses its internal clock when the battery latch removes power. Keep the
   // best known epoch on SD so the next boot still has a useful visual fallback.
   halClock.saveCurrentTime();
 
@@ -483,6 +496,11 @@ bool setupDisplayAndFonts(bool seamless = false) {
 }
 
 void setup() {
+  // The SDK profile permits 20 MHz, but the OEM X4 Pro firmware uses 5 MHz.
+  // Keep the first field build at the hardware-confirmed OEM clock; throughput
+  // is less important than signal margin on an unseen production revision.
+  BoardConfig::ACTIVE.displaySpiHz = 5000000;
+
   // Assert board-level rail/latch pins before touching serial, I2C, SD or the
   // display. X4 Pro requires GPIO1 high before its GT911/SD peripherals respond.
   BoardConfig::holdPowerRails();
@@ -698,8 +716,10 @@ void setup() {
 extern "C" bool verifyRollbackLater() { return true; }
 
 namespace {
-// OTA health is a set of functional milestones, not merely elapsed uptime.
-// Until all of them pass, any reset returns the device to the previous slot.
+// OTA health is a set of functional milestones, not merely elapsed uptime. If
+// the preserved OEM bootloader supports rollback, a reset before these pass
+// returns the device to the previous slot. ROM restore remains the independent
+// recovery path when that OEM compile-time option is unknown.
 void markOtaValidOnceHealthy() {
   static bool done = false;
   static uint32_t healthyLoopCount = 0;

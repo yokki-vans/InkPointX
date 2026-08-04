@@ -234,7 +234,10 @@ void WifiSelectionActivity::attemptConnection() {
 
   WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);  // Abort any in-progress SDK auto-connect and clear NVS-saved SSID
+  // Abort any in-progress connection without erasing OEM NVS data. This X4 Pro
+  // branch stores its own credentials on SD and must preserve factory app1's
+  // per-device state for recovery.
+  WiFi.disconnect(true, false);
   delay(100);
 
   // Set hostname so routers show "InkPointX-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"

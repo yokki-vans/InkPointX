@@ -42,14 +42,13 @@ jobs:
         run: |
           set -euo pipefail
           test "$(stat -c%s .pio/build/x4pro/firmware.bin)" -le $((0x7e0000))
-          cp .pio/build/x4pro/firmware.bin .pio/build/x4pro/InkPointX-X4Pro.bin
-          (cd .pio/build/x4pro && sha256sum InkPointX-X4Pro.bin > SHA256SUMS)
+          mkdir -p dist/x4pro
+          cp .pio/build/x4pro/firmware.bin dist/x4pro/InkPointX-X4Pro.bin
+          cp scripts/x4pro_safe_flash.py docs/FLASHING_X4PRO_RU.txt dist/x4pro/
+          (cd dist/x4pro && sha256sum InkPointX-X4Pro.bin x4pro_safe_flash.py FLASHING_X4PRO_RU.txt > SHA256SUMS)
 
       - name: Upload app-only candidate
         uses: actions/upload-artifact@v6
         with:
           name: InkPointX-X4Pro-field-candidate
-          path: |
-            .pio/build/x4pro/InkPointX-X4Pro.bin
-            .pio/build/x4pro/SHA256SUMS
-            scripts/x4pro_safe_flash.py
+          path: dist/x4pro/

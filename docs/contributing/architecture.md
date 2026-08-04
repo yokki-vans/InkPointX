@@ -19,8 +19,9 @@ The X4 Pro HAL owns these safety boundaries:
 - SD uses native 1-bit SDMMC and an active-low GPIO5 rail;
 - GT911, CW2017 and BM8563 share the X4 Pro I2C bus;
 - first installation writes only inactive OEM app0;
-- the external installer accepts only an ESP32-S3 app image, while the ESP-IDF
-  bootloader keeps the factory app1 available for automatic rollback.
+- the external installer accepts only a verified ESP32-S3 app image and keeps
+  factory app1 available for ROM-mode recovery. Automatic rollback is used only
+  if the preserved OEM bootloader was built with that option.
 
 The reader, parsers and UI remain layered above the HAL and operate on the
 X4 Pro portrait framebuffer geometry (480 × 800 logical orientation).

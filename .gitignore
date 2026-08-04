@@ -25,6 +25,7 @@ converted/
 /dependencies.lock
 /sdkconfig.default
 /sdkconfig.defaults
+/sdkconfig.*
 *.local*
 *.cpfont
 lib/EpdFont/scripts/downloaded_fonts/

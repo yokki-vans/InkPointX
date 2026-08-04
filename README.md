@@ -55,7 +55,7 @@ partition table, NVS and factory `app1` byte-for-byte.
 
 ## Safe first installation
 
-Requirements: Python 3 and `esptool` 4.x/5.x.
+Requirements: Python 3 and the pinned `esptool`/`espefuse` 5.3.x package.
 
 1. Enter ESP32-S3 ROM download mode using the GPIO0 navigation key during reset.
    Prove this works before any write.
@@ -84,11 +84,14 @@ python3 scripts/x4pro_safe_flash.py install \
   --port /dev/ttyACM0 \
   --backup x4pro-backup \
   --firmware .pio/build/x4pro/firmware.bin \
+  --firmware-sha256 SHA256_FROM_TRUSTED_PACKAGE \
   --confirm PRESERVE-FACTORY-APP1
 ```
 
-The installer validates ESP32-S3 chip ID, security eFuses, the exact OEM
-partition map, active factory `app1`, firmware size and target chip. It then:
+The installer positively validates ESP32-S3 chip ID, 16 MB flash, disabled Secure
+Boot/flash encryption, zero anti-rollback secure version, the exact OEM partition
+map, the complete factory `app1`, and the supplied firmware SHA-256/checksum/header.
+It then:
 
 - verifies that protected flash still matches the backup;
 - writes only inactive `app0` at `0x10000`;
@@ -96,8 +99,13 @@ partition map, active factory `app1`, firmware size and target chip. It then:
 - writes one previously inactive 4 KiB `otadata` sector;
 - leaves bootloader, partition table, NVS and factory `app1` untouched.
 
-If the test image does not boot, re-enter ROM mode and restore the original boot
-selection:
+The firmware itself also disables Wi-Fi/PHY and frontlight persistence in NVS.
+A runtime flash guard rejects every partition write/erase except `otadata`; in
+this field branch settings remain on SD or are session-only, preserving factory
+NVS, SPIFFS and `app1` for recovery.
+
+If the test image does not boot, re-enter ROM mode and restore the factory boot
+selection. This writes one inactive 4 KiB metadata sector, not both copies:
 
 ```bash
 python3 scripts/x4pro_safe_flash.py restore-stock \
@@ -109,6 +117,11 @@ python3 scripts/x4pro_safe_flash.py restore-stock \
 Keep the entire backup directory. `nvs.bin` is device-specific and must never be
 copied to another reader.
 
+The OEM bootloader is deliberately preserved, so its compile-time rollback
+configuration is unknown. Do not rely on automatic rollback. ROM download mode
+plus `restore-stock` is the designed recovery path that remains independent of
+app0; it must be proven on the test unit by the mandatory backup/verify stages.
+
 ## Test-build safeguards
 
 - X3/X4 build environments and runtime board detection are removed.
@@ -116,8 +129,8 @@ copied to another reader.
 - Firmware files with a non-ESP32-S3 image header are rejected by the installer.
 - OTA and SD self-update code is excluded from this first hardware-test branch.
 - Cold boot stays awake because the X4 Pro VBUS-detect pin is not yet validated.
-- A pending first-install image is marked valid only after SD, display and main-loop health
-  milestones complete.
+- If the preserved OEM bootloader supports ESP-IDF rollback, a pending image is
+  marked valid only after SD, display and main-loop health milestones complete.
 
 ## License
 

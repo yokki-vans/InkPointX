@@ -90,6 +90,9 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
+      - name: Install pinned field installer tools
+        run: uv pip install --system "esptool>=5.3,<5.4"
+
       - name: Install font pipeline requirements
         # scripts/build_ui_fonts.py generates the UI font subsets during the
         # build and needs freetype-py + fonttools. Without this the pre-build
@@ -134,19 +137,42 @@ jobs:
             exit 1
           fi
 
+      - name: Verify X4 Pro image and runtime flash guard
+        run: |
+          set -euo pipefail
+          firmware=.pio/build/x4pro/firmware.bin
+          digest="$(sha256sum "$firmware" | cut -d' ' -f1)"
+          python3 - "$firmware" "$digest" <<'PY'
+          import sys
+          from pathlib import Path
+          from scripts import x4pro_safe_flash
+
+          x4pro_safe_flash.require_supported_tools()
+          x4pro_safe_flash.validate_firmware(Path(sys.argv[1]), sys.argv[2])
+          PY
+          grep -q '^# CONFIG_ESP_WIFI_NVS_ENABLED is not set$' sdkconfig.x4pro
+          grep -q '^# CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE is not set$' sdkconfig.x4pro
+          nm="$HOME/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-nm"
+          for symbol in \
+            __wrap_esp_partition_write \
+            __wrap_esp_partition_write_raw \
+            __wrap_esp_partition_erase_range; do
+            "$nm" .pio/build/x4pro/firmware.elf | grep -Eq " T ${symbol}$"
+          done
+
       - name: Name and hash the app-only image
         run: |
-          cp .pio/build/x4pro/firmware.bin .pio/build/x4pro/InkPointX-X4Pro.bin
-          (cd .pio/build/x4pro && sha256sum InkPointX-X4Pro.bin > SHA256SUMS)
+          set -euo pipefail
+          mkdir -p dist/x4pro
+          cp .pio/build/x4pro/firmware.bin dist/x4pro/InkPointX-X4Pro.bin
+          cp scripts/x4pro_safe_flash.py docs/FLASHING_X4PRO_RU.txt dist/x4pro/
+          (cd dist/x4pro && sha256sum InkPointX-X4Pro.bin x4pro_safe_flash.py FLASHING_X4PRO_RU.txt > SHA256SUMS)
 
       - name: Upload app-only artifact
         uses: actions/upload-artifact@v6
         with:
           name: InkPointX-X4Pro
-          path: |
-            .pio/build/x4pro/InkPointX-X4Pro.bin
-            .pio/build/x4pro/SHA256SUMS
-            scripts/x4pro_safe_flash.py
+          path: dist/x4pro/
           if-no-files-found: error
 
   unit-tests:

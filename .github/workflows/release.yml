@@ -53,17 +53,16 @@ jobs:
           set -euo pipefail
           build_dir=.pio/build/x4pro
           test "$(stat -c%s "$build_dir/firmware.bin")" -le $((0x7e0000))
-          cp "$build_dir/firmware.bin" "$build_dir/InkPointX-X4Pro.bin"
-          (cd "$build_dir" && sha256sum InkPointX-X4Pro.bin > SHA256SUMS)
+          mkdir -p dist/x4pro
+          cp "$build_dir/firmware.bin" dist/x4pro/InkPointX-X4Pro.bin
+          cp scripts/x4pro_safe_flash.py docs/FLASHING_X4PRO_RU.txt dist/x4pro/
+          (cd dist/x4pro && sha256sum InkPointX-X4Pro.bin x4pro_safe_flash.py FLASHING_X4PRO_RU.txt > SHA256SUMS)
 
       - name: Upload CI artifact
         uses: actions/upload-artifact@v6
         with:
           name: InkPointX-X4Pro-${{ github.ref_name }}
-          path: |
-            .pio/build/x4pro/InkPointX-X4Pro.bin
-            .pio/build/x4pro/SHA256SUMS
-            scripts/x4pro_safe_flash.py
+          path: dist/x4pro/
 
       - name: Publish release
         env:
@@ -71,9 +70,10 @@ jobs:
         run: |
           set -euo pipefail
           assets=(
-            .pio/build/x4pro/InkPointX-X4Pro.bin
-            .pio/build/x4pro/SHA256SUMS
-            scripts/x4pro_safe_flash.py
+            dist/x4pro/InkPointX-X4Pro.bin
+            dist/x4pro/SHA256SUMS
+            dist/x4pro/x4pro_safe_flash.py
+            dist/x4pro/FLASHING_X4PRO_RU.txt
           )
           if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" --clobber "${assets[@]}"

@@ -1,14 +1,8 @@
 #include "HalFrontlight.h"
 
 #include <Logging.h>
-#include <Preferences.h>
 
 namespace {
-constexpr char NVS_NAMESPACE[] = "ipxlight";
-constexpr char NVS_LEVEL[] = "level";
-constexpr char NVS_WARMTH[] = "warmth";
-constexpr char NVS_ON[] = "on";
-
 uint8_t clampPercent(const uint8_t value) { return value > 100 ? 100 : value; }
 }  // namespace
 
@@ -20,28 +14,16 @@ HalFrontlight& HalFrontlight::getInstance() {
 void HalFrontlight::begin() {
   if (!manager.present()) return;
 
-  Preferences prefs;
-  if (prefs.begin(NVS_NAMESPACE, true)) {
-    level = clampPercent(prefs.getUChar(NVS_LEVEL, level));
-    warm = clampPercent(prefs.getUChar(NVS_WARMTH, warm));
-    lit = prefs.getBool(NVS_ON, false);
-    prefs.end();
-  }
-
   manager.begin();
   manager.setColorTemperature(warm);
   manager.setBrightness(lit ? level : 0);
   LOG_INF("LIGHT", "Frontlight: %s, level=%u%%, warmth=%u%%", lit ? "on" : "off", level, warm);
 }
 
-void HalFrontlight::save() const {
-  Preferences prefs;
-  if (!prefs.begin(NVS_NAMESPACE, false)) return;
-  prefs.putUChar(NVS_LEVEL, level);
-  prefs.putUChar(NVS_WARMTH, warm);
-  prefs.putBool(NVS_ON, lit);
-  prefs.end();
-}
+// The X4 Pro test image must leave the OEM NVS partition byte-for-byte intact
+// so stock app1 remains recoverable with all factory calibration. Frontlight
+// state is therefore session-only in this dedicated branch.
+void HalFrontlight::save() const {}
 
 void HalFrontlight::setOn(const bool on, const bool persist) {
   if (!manager.present()) return;
