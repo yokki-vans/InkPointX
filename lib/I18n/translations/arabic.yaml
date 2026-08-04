@@ -4,7 +4,7 @@ _order: "26"
 
 STR_CROSSPOINT: "InkPoint X"
 STR_INKPOINT_TAGLINE: "البرنامج الثابت مفتوح المصدر"
-STR_INKPOINT_DEVICE_TAGLINE: "لـ XTEINK X4"
+STR_INKPOINT_DEVICE_TAGLINE: "لـ XTEINK X4 PRO"
 STR_BOOTING: "تمهيد"
 STR_SLEEPING: "في وضع السكون"
 STR_ENTERING_SLEEP: "الذهاب إلى وضع السكون"

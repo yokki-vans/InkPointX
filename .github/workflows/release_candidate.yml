@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-release-candidate:
-    if: startsWith(github.ref_name, 'release/')
+    if: github.ref_name == 'dev-x4pro-test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -35,23 +35,21 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
 
-      - name: Extract env
+      - name: Build X4 Pro field candidate
+        run: pio run -e x4pro
+
+      - name: Name and hash the app-only image
         run: |
-          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
-          echo "BRANCH_SUFFIX=${GITHUB_REF_NAME#release/}" >> $GITHUB_ENV
+          set -euo pipefail
+          test "$(stat -c%s .pio/build/x4pro/firmware.bin)" -le $((0x7e0000))
+          cp .pio/build/x4pro/firmware.bin .pio/build/x4pro/InkPointX-X4Pro.bin
+          (cd .pio/build/x4pro && sha256sum InkPointX-X4Pro.bin > SHA256SUMS)
 
-      - name: Build CrossPoint Release Candidate
-        env:
-          CROSSPOINT_RC_HASH: ${{ env.SHORT_SHA }}
-        run: pio run -e gh_release_rc
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload app-only candidate
+        uses: actions/upload-artifact@v6
         with:
-          name: CrossPoint-RC-${{ env.BRANCH_SUFFIX }}
+          name: InkPointX-X4Pro-field-candidate
           path: |
-            .pio/build/gh_release_rc/bootloader.bin
-            .pio/build/gh_release_rc/firmware.bin
-            .pio/build/gh_release_rc/firmware.elf
-            .pio/build/gh_release_rc/firmware.map
-            .pio/build/gh_release_rc/partitions.bin
+            .pio/build/x4pro/InkPointX-X4Pro.bin
+            .pio/build/x4pro/SHA256SUMS
+            scripts/x4pro_safe_flash.py

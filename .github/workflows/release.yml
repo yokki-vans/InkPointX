@@ -1,11 +1,12 @@
-name: Compile Release
+name: Compile X4 Pro Release
+
 on:
   push:
     tags:
-      - '*'
+      - 'v*-x4pro-*'
 
 permissions:
-  contents: write  # required to publish the release from this workflow
+  contents: write
 
 jobs:
   build-release:
@@ -19,128 +20,66 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-          enable-cache: false
-
-      - name: Install PlatformIO Core
-        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
-
-      - name: Install font pipeline requirements
-        # scripts/build_ui_fonts.py generates the UI font subsets during the
-        # build and needs freetype-py + fonttools. Without this the pre-build
-        # script aborts, which is why release builds only ever succeeded
-        # locally and releases had to be cut by hand.
-        run: uv pip install --system -r lib/EpdFont/scripts/requirements.txt
-
-      - name: Install host-test tools
+      - name: Install build dependencies
         run: |
+          python3 -m pip install -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          python3 -m pip install -r lib/EpdFont/scripts/requirements.txt
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build
 
-      - name: Run host unit tests
+      - name: Run host tests
         run: |
           cmake -S test -B build/test -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/test
           ctest --test-dir build/test --output-on-failure -j
+          python3 test/x4pro_safe_flash_test.py
 
       - name: Run static analysis
-        run: pio check --fail-on-defect medium
+        run: pio check -e x4pro --fail-on-defect medium
 
       - name: Verify tag matches firmware version
         shell: bash
         run: |
           set -euo pipefail
           version="$(awk -F= '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' platformio.ini)"
-          if [ "${GITHUB_REF_NAME}" != "${version}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match platformio.ini version ${version}"
-            exit 1
-          fi
+          test "${GITHUB_REF_NAME}" = "${version}"
 
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.platformio
-          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
-          restore-keys: pio-${{ runner.os }}-
+      - name: Build X4 Pro application image
+        run: pio run -e x4pro
 
-      - name: Build universal X3/X4 firmware
-        run: pio run -e gh_release
-
-      - name: Enforce production flash budget
+      - name: Package app-only release
         shell: bash
         run: |
           set -euo pipefail
-          used="$(stat -c%s .pio/build/gh_release/firmware.bin)"
-          # app0/app1 are both 0x640000 bytes in partitions.csv. Keep the CI
-          # assertion tied to the actual OTA slot instead of an obsolete
-          # historical image-size threshold.
-          limit=$((0x640000))
-          echo "Release image: ${used} bytes (limit ${limit})"
-          test "${used}" -le "${limit}"
+          build_dir=.pio/build/x4pro
+          test "$(stat -c%s "$build_dir/firmware.bin")" -le $((0x7e0000))
+          cp "$build_dir/firmware.bin" "$build_dir/InkPointX-X4Pro.bin"
+          (cd "$build_dir" && sha256sum InkPointX-X4Pro.bin > SHA256SUMS)
 
-      - name: Package device-labelled release assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          build_dir=.pio/build/gh_release
-          tag="${GITHUB_REF_NAME}"
-          cp "$build_dir/firmware.bin" "$build_dir/InkPointX-${tag}-X3-X4.bin"
-          cp "$build_dir/firmware.bin" "$build_dir/InkPointX-${tag}-X3.bin"
-          cp "$build_dir/firmware.bin" "$build_dir/InkPointX-${tag}-X4.bin"
-          (
-            cd "$build_dir"
-            sha256sum firmware.bin "InkPointX-${tag}-X3-X4.bin" \
-              "InkPointX-${tag}-X3.bin" "InkPointX-${tag}-X4.bin" > SHA256SUMS
-          )
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload CI artifact
+        uses: actions/upload-artifact@v6
         with:
-          name: CrossPoint-${{ github.ref_name }}
+          name: InkPointX-X4Pro-${{ github.ref_name }}
           path: |
-            .pio/build/gh_release/bootloader.bin
-            .pio/build/gh_release/firmware.bin
-            .pio/build/gh_release/firmware.elf
-            .pio/build/gh_release/firmware.map
-            .pio/build/gh_release/partitions.bin
-            .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3-X4.bin
-            .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3.bin
-            .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X4.bin
-            .pio/build/gh_release/SHA256SUMS
+            .pio/build/x4pro/InkPointX-X4Pro.bin
+            .pio/build/x4pro/SHA256SUMS
+            scripts/x4pro_safe_flash.py
 
-      # The on-device updater reads releases/latest and looks for an asset
-      # named exactly firmware.bin (src/network/OtaUpdater.cpp). Publishing the
-      # release here is what makes a tag reach existing devices over the air —
-      # before this, releases were created by hand and a tag alone shipped
-      # nothing.
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Idempotent: a release may already exist if the tag was cut by hand
-          # (gh release create also creates the tag, which fires this workflow).
-          # In that case attach/replace the CI-built binary instead of failing.
+          assets=(
+            .pio/build/x4pro/InkPointX-X4Pro.bin
+            .pio/build/x4pro/SHA256SUMS
+            scripts/x4pro_safe_flash.py
+          )
           if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release ${{ github.ref_name }} exists; uploading X3/X4 firmware assets"
-            gh release upload "${{ github.ref_name }}" \
-              --repo "${{ github.repository }}" --clobber \
-              .pio/build/gh_release/firmware.bin \
-              .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3-X4.bin \
-              .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3.bin \
-              .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X4.bin \
-              .pio/build/gh_release/SHA256SUMS
+            gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" --clobber "${assets[@]}"
           else
-            gh release create "${{ github.ref_name }}" \
-              --repo "${{ github.repository }}" \
-              --title "InkPoint X ${{ github.ref_name }}" \
-              --notes "Universal ESP32-C3 firmware for XTEINK X3 and X4. The X3/X4-labelled files are byte-identical aliases of firmware.bin; the device, panel controller, geometry, battery backend, RTC/IMU and power rails are selected at boot." \
-              .pio/build/gh_release/firmware.bin \
-              .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3-X4.bin \
-              .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3.bin \
-              .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X4.bin \
-              .pio/build/gh_release/SHA256SUMS
+            gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" \
+              --title "InkPointX X4 Pro ${{ github.ref_name }}" \
+              --notes "Experimental app-only ESP32-S3 firmware for XTEINK X4 Pro. A full backup and the bundled safe installer are mandatory. No factory image is provided." \
+              "${assets[@]}"
           fi

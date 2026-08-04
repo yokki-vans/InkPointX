@@ -43,10 +43,8 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
     panicStack[i].sp = 0;
   }
 
-  // ESP32-C3 uses a RISC-V exception frame; X4 Pro's ESP32-S3 uses Xtensa.
-#if defined(__riscv)
-  uint32_t sp = static_cast<uint32_t>(reinterpret_cast<const RvExcFrame*>(frame)->sp);
-#elif defined(__XTENSA__)
+  // X4 Pro's ESP32-S3 uses the Xtensa exception frame.
+#if defined(__XTENSA__)
   uint32_t sp = static_cast<uint32_t>(reinterpret_cast<const XtExcFrame*>(frame)->a1);
 #else
   __real_panic_print_backtrace(frame, core);

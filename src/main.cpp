@@ -40,8 +40,6 @@
 #include "activities/RenderLock.h"
 #include "activities/reader/ProgressFile.h"
 #include "activities/settings/FontDownloadActivity.h"
-#include "activities/settings/OtaUpdateActivity.h"
-#include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
@@ -51,9 +49,22 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
+static_assert(FREEINK_DEVICE_X4PRO && !FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4,
+              "dev-x4pro-test must compile only the XTEINK X4 Pro profile");
+static_assert(BoardConfig::DEFAULT_DEVICE.board == BoardConfig::Board::XteinkX4Pro);
+static_assert(BoardConfig::DEFAULT_DEVICE.displayWidth == 800 && BoardConfig::DEFAULT_DEVICE.displayHeight == 480);
+static_assert(BoardConfig::DEFAULT_DEVICE.display.sclk == 12 && BoardConfig::DEFAULT_DEVICE.display.mosi == 11 &&
+              BoardConfig::DEFAULT_DEVICE.display.cs == 13 && BoardConfig::DEFAULT_DEVICE.display.dc == 18 &&
+              BoardConfig::DEFAULT_DEVICE.display.rst == 14 && BoardConfig::DEFAULT_DEVICE.display.busy == 6);
+static_assert(BoardConfig::DEFAULT_DEVICE.input.up == 0 && BoardConfig::DEFAULT_DEVICE.input.down == 7 &&
+              BoardConfig::DEFAULT_DEVICE.input.power == 3);
+static_assert(BoardConfig::DEFAULT_DEVICE.sdmmc.clk == 41 && BoardConfig::DEFAULT_DEVICE.sdmmc.cmd == 42 &&
+              BoardConfig::DEFAULT_DEVICE.sdmmc.d0 == 40 && BoardConfig::DEFAULT_DEVICE.sdmmc.busWidth == 1);
+static_assert(BoardConfig::DEFAULT_DEVICE.power.latch0 == 1);
+
 // Native PDF parsing has legitimate recursive dictionary/array paths and can
 // enter newlib formatting while several parser frames are live.  The Arduino
-// default (8 KiB) is too small for real-world PDFs on ESP32-C3.
+// default (8 KiB) is too small for real-world PDFs on this reader workload.
 SET_LOOP_TASK_STACK_SIZE(16384);
 
 GfxRenderer renderer(display);
@@ -385,18 +396,38 @@ void enterDeepSleep(bool fromTimeout = false) {
 }
 
 bool setupDisplayAndFonts(bool seamless = false) {
-#if !FREEINK_MCU_C3
-  // X4 Pro production batches use either SSD1677 or UC8179. Resolve the
-  // controller before FreeInkDisplay selects its driver; the C3 X3/X4 path has
-  // already done this in HalGPIO::begin and must not be probed twice.
+  // Probe before enabling panel high voltage. This first field build permits
+  // only the hardware-validated SSD1677 path. A confirmed UltraChip controller
+  // or an inconclusive read fails closed and leaves the device awake on USB for
+  // diagnostics; it must never guess a waveform on an unknown panel.
   static bool controllerResolved = false;
   if (!controllerResolved) {
     controllerResolved = true;
-    if (freeink::applyXteinkDisplayController()) {
-      LOG_INF("MAIN", "Panel controller: UltraChip UC81xx variant detected");
+    freeink::applyXteinkDisplayController();
+    const auto& diag = freeink::getXteinkDisplayProbeDiag();
+    const uint8_t primary = static_cast<uint8_t>(freeink::DisplayControllerVerdict::PrimaryAssumed);
+    const bool validatedSsd1677 = diag.valid && diag.verdict == primary &&
+                                  BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::SSD1677;
+    if (!validatedSsd1677) {
+      displayInitFailed = true;
+      LOG_ERR("MAIN", "Panel safety gate: refusing controller=%u verdict=%u VER=%02x %02x %02x %02x %02x FLG=%02x",
+              static_cast<unsigned>(BoardConfig::ACTIVE.displayController), static_cast<unsigned>(diag.verdict),
+              diag.ver[0], diag.ver[1], diag.ver[2], diag.ver[3], diag.ver[4], diag.flg);
+      if (Storage.ready()) {
+        char report[192];
+        snprintf(report, sizeof(report),
+                 "InkPointX %s\nX4 Pro panel safety gate\ncontroller=%u verdict=%u\nVER=%02X %02X %02X %02X "
+                 "%02X\nFLG=%02X\n",
+                 CROSSPOINT_VERSION, static_cast<unsigned>(BoardConfig::ACTIVE.displayController),
+                 static_cast<unsigned>(diag.verdict), diag.ver[0], diag.ver[1], diag.ver[2], diag.ver[3], diag.ver[4],
+                 diag.flg);
+        Storage.mkdir("/.crosspoint");
+        Storage.writeFile("/.crosspoint/x4pro_panel_probe.txt", report);
+      }
+      return false;
     }
+    LOG_INF("MAIN", "Panel safety gate: SSD1677 path accepted");
   }
-#endif
 
   bool displayReady = false;
   for (int attempt = 1; attempt <= 3 && !displayReady; ++attempt) {
@@ -518,27 +549,8 @@ void setup() {
 
   const auto wakeupReason = gpio.getWakeupReason();
 
-  // Recovery must be resolved before any automatic "USB cold boot -> sleep"
-  // routing. Otherwise the very condition in which recovery is most useful
-  // can power the device down before the application checks the buttons.
-  bool recoveryFirmwareMode = false;
-  if (wakeupReason == HalGPIO::WakeupReason::PowerButton || wakeupReason == HalGPIO::WakeupReason::AfterUSBPower) {
-    const unsigned long settleStart = millis();
-    while (millis() - settleStart < 500) {
-      gpio.update();
-      delay(10);
-    }
-    const bool recoverySideButton =
-        BoardConfig::isX4Pro() ? gpio.isPressed(HalGPIO::BTN_DOWN) : gpio.isPressed(HalGPIO::BTN_UP);
-    if (recoverySideButton && gpio.isPressed(HalGPIO::BTN_POWER)) {
-      recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)", BoardConfig::isX4Pro() ? "DOWN" : "UP");
-    }
-  }
-
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
-      if (recoveryFirmwareMode) break;
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
@@ -546,7 +558,6 @@ void setup() {
       }
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
-      if (recoveryFirmwareMode) break;
 #ifdef ENABLE_SERIAL_LOG
       // Diagnostic builds must remain awake after USB reset so the serial
       // console can exercise network routes on real hardware.
@@ -601,20 +612,9 @@ void setup() {
       APP_STATE.showBootScreen = true;
       APP_STATE.saveToFile();
       if (loadSleepFrameBuffer()) {
-        const bool useDifferentialRefresh = gpio.deviceIsX3();
-        if (useDifferentialRefresh) {
-          // begin() clears controller RAM; restore the saved frame as the X3
-          // differential baseline before replacing the moon icon.
-          renderer.cleanupGrayscaleWithFrameBuffer();
-        }
         const auto pageHeight = renderer.getScreenHeight();
         renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
-        if (useDifferentialRefresh) {
-          renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
-          allowFastInitialReaderRefresh = true;
-        } else {
-          renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-        }
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
       } else {
         activityManager.goToBoot();  // frame file missing, fall back to the splash
       }
@@ -624,11 +624,7 @@ void setup() {
       break;
   }
 
-  if (recoveryFirmwareMode) {
-    // Skip normal home/reader routing: jump straight into the SD firmware picker.
-    activityManager.replaceActivity(
-        makeUniqueNoThrow<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
-  } else if (HalSystem::isRebootFromPanic()) {
+  if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
@@ -833,11 +829,6 @@ void loop() {
         // like "the power button rebooted the device instead of sleeping it".
         LOG_INF("MAIN", "Profile route: deep sleep (power-button path)");
         enterDeepSleep(false);
-      } else if (cmd == "PROFILE_OTA") {
-        // Verification route for the over-the-air update path: reaching it
-        // through the UI needs several button presses this console cannot make.
-        activityManager.replaceActivity(makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager));
-        LOG_DBG("MAIN", "Profile route: OTA update");
       } else if (cmd == "PROFILE_FONTS") {
         activityManager.replaceActivity(makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager));
         LOG_DBG("MAIN", "Profile route: font catalog");

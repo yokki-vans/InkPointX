@@ -4,7 +4,7 @@ _order: "10"
 
 STR_CROSSPOINT: "InkPoint X"
 STR_INKPOINT_TAGLINE: "ВІДКРИТЕ ПРОГРАМНЕ ЗАБЕЗПЕЧЕННЯ"
-STR_INKPOINT_DEVICE_TAGLINE: "ДЛЯ XTEINK X4"
+STR_INKPOINT_DEVICE_TAGLINE: "ДЛЯ XTEINK X4 PRO"
 STR_BOOTING: "ЗАВАНТАЖЕННЯ"
 STR_SLEEPING: "СПИТЬ"
 STR_ENTERING_SLEEP: "Перехід у режим сну"

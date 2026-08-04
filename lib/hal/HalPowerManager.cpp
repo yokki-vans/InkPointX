@@ -5,7 +5,6 @@
 #include <PowerManager.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
-#include <soc/soc_caps.h>
 
 #include <cassert>
 
@@ -63,19 +62,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   logSerial.end();
 #endif
 
-#if !SOC_PM_SUPPORT_EXT1_WAKEUP
-  if (gpio.isXteinkDevice() && gpio.deviceIsX4()) {
-    // X4 GPIO13 is the battery latch. X3 uses the same pin for the SD rail, so
-    // only the X4 path may treat it as a latch.
-    constexpr gpio_num_t GPIO_SPIWP = GPIO_NUM_13;
-    gpio_set_direction(GPIO_SPIWP, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_SPIWP, 0);
-    gpio_hold_en(GPIO_SPIWP);
-  }
-#endif
-
-  // X3's active-high SD rail is declared in BoardConfig and is held LOW for
-  // sleep. This runs after display.deepSleep(), while the panel still has power.
+  // Shut down the X4 Pro touch/SD/frontlight rails after display.deepSleep().
   freeink::PowerManager::powerDownRailsForSleep();
   freeink::PowerManager::deepSleepUntilPowerButton();
 }

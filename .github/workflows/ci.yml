@@ -2,7 +2,7 @@ name: CI (build)
 
 on:
   push:
-    branches: [master, dev]
+    branches: [dev-x4pro-test]
   pull_request:
 
 permissions:
@@ -104,13 +104,12 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
 
-      - name: Build CrossPoint
+      - name: Build InkPointX X4 Pro
         run: |
           set -euo pipefail
           pio run | tee pio.log
 
       - name: Extract firmware stats
-
         run: |
           set -euo pipefail
           ram_line="$(grep -E "RAM:\\s" -m1 pio.log || true)"
@@ -124,24 +123,30 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce flash budget
-        # The 6.25 MiB app slot is fixed for the fielded fleet (the partition
-        # table cannot change over OTA). Reject an image that cannot fit in
-        # either application partition.
+        # Match the confirmed OEM X4 Pro app0/app1 size.
         run: |
           set -euo pipefail
-          used="$(grep -Eo 'used [0-9]+ bytes' -m1 pio.log | grep -Eo '[0-9]+' || echo 0)"
-          limit=$((0x640000))
-          echo "Flash used: ${used} bytes (limit ${limit})"
+          used="$(stat -c%s .pio/build/x4pro/firmware.bin)"
+          limit=$((0x7e0000))
+          echo "Application image: ${used} bytes (slot limit ${limit})"
           if [ "$used" -gt "$limit" ]; then
             echo "::error::Firmware size ${used} exceeds the OTA app slot (${limit} bytes)"
             exit 1
           fi
 
-      - name: Upload firmware.bin artifact
+      - name: Name and hash the app-only image
+        run: |
+          cp .pio/build/x4pro/firmware.bin .pio/build/x4pro/InkPointX-X4Pro.bin
+          (cd .pio/build/x4pro && sha256sum InkPointX-X4Pro.bin > SHA256SUMS)
+
+      - name: Upload app-only artifact
         uses: actions/upload-artifact@v6
         with:
-          name: firmware.bin
-          path: .pio/build/default/firmware.bin
+          name: InkPointX-X4Pro
+          path: |
+            .pio/build/x4pro/InkPointX-X4Pro.bin
+            .pio/build/x4pro/SHA256SUMS
+            scripts/x4pro_safe_flash.py
           if-no-files-found: error
 
   unit-tests:
@@ -170,6 +175,9 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build/test --output-on-failure -j
+
+      - name: Test X4 Pro fail-closed installer
+        run: python3 test/x4pro_safe_flash_test.py
 
   # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking
   # PR requirements.

@@ -22,9 +22,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
 #include "OpdsServerStore.h"
-#include "OtaUpdateActivity.h"
 #include "SdCardFontSystem.h"
-#include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
 #include "SettingsReset.h"
 #include "StatusBarSettingsActivity.h"
@@ -123,8 +121,9 @@ void SettingsActivity::rebuildSettingsLists() {
 
   // Maintenance and device information
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
+  // Self-update is deliberately unavailable in the first X4 Pro field build.
+  // Installation is performed from ROM download mode with a full-flash backup,
+  // preserving the factory slot and per-device NVS calibration.
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DEVICE_INFO, SettingAction::DeviceInfo));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_RESET_SETTINGS, SettingAction::ResetSettings));
 
@@ -274,12 +273,6 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::ClearCache:
         startActivityForResult(makeUniqueNoThrow<ClearCacheActivity>(renderer, mappedInput), resultHandler);
-        break;
-      case SettingAction::CheckForUpdates:
-        startActivityForResult(makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInput), resultHandler);
-        break;
-      case SettingAction::SdFirmwareUpdate:
-        startActivityForResult(makeUniqueNoThrow<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::DownloadFonts:
         startActivityForResult(makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInput),

@@ -35,9 +35,8 @@ void DeviceInfoActivity::render(RenderLock&&) {
   snprintf(battery, sizeof(battery), "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
   const std::array<const char*, 5> labels = {tr(STR_DEVICE_MODEL), tr(STR_FIRMWARE_VERSION), tr(STR_DISPLAY),
                                              tr(STR_PROCESSOR), tr(STR_BATTERY)};
-  const std::array<std::string, 5> values = {gpio.deviceIsX3() ? "Xteink X3" : "Xteink X4", CROSSPOINT_VERSION,
-                                             gpio.deviceIsX3() ? "792 \xc3\x97 528 e-ink" : "800 \xc3\x97 480 e-ink",
-                                             "ESP32-C3", battery};
+  const std::array<std::string, 5> values = {"XTEINK X4 Pro", CROSSPOINT_VERSION, "800 \xc3\x97 480 e-ink", "ESP32-S3",
+                                             battery};
 
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(

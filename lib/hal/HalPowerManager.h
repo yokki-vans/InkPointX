@@ -30,9 +30,7 @@ class HalPowerManager {
  public:
   static constexpr int LOW_POWER_FREQ = 10;                    // MHz
   static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;  // ms
-  // The X3 fuel gauge lives on I2C. A five-second cache keeps the status bar
-  // responsive while avoiding a constant stream of gauge wakeups when the UI
-  // is otherwise idle.
+  // Cache CW2017 reads so the status bar does not continuously poll shared I2C.
   static constexpr unsigned long BATTERY_POLL_MS = 5000;  // ms
 
   void begin();

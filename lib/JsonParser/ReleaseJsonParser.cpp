@@ -5,6 +5,10 @@
 
 namespace {
 
+#ifndef INKPOINT_FIRMWARE_ASSET
+#define INKPOINT_FIRMWARE_ASSET "firmware.bin"
+#endif
+
 void safeCopy(char* dst, size_t dstSize, const char* src, size_t srcLen) {
   size_t n = srcLen < dstSize - 1 ? srcLen : dstSize - 1;
   memcpy(dst, src, n);
@@ -47,7 +51,9 @@ const char* ReleaseJsonParser::getFirmwareDigest() const { return firmwareDigest
 size_t ReleaseJsonParser::getFirmwareSize() const { return firmwareSize; }
 
 void ReleaseJsonParser::commitAsset() {
-  if (strcmp(currentAssetName, "firmware.bin") == 0) {
+  // A target-specific asset name prevents this ESP32-S3 build from ever
+  // selecting the universal ESP32-C3 firmware.bin release by accident.
+  if (strcmp(currentAssetName, INKPOINT_FIRMWARE_ASSET) == 0) {
     memcpy(firmwareUrl, currentAssetUrl, sizeof(firmwareUrl));
     memcpy(firmwareDigest, currentAssetDigest, sizeof(firmwareDigest));
     firmwareSize = currentAssetSize;

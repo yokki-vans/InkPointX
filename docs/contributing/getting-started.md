@@ -1,87 +1,25 @@
-# Getting Started
+# Getting started
 
-This guide helps you build and run CrossPoint locally.
+This branch builds only for the XTEINK X4 Pro ESP32-S3 target.
 
-## Prerequisites
+Requirements:
 
-- PlatformIO Core (`pio`) or VS Code + PlatformIO IDE
-- Python 3.8+
-- `clang-format` 21+ in your `PATH` (CI uses clang-format 21)
-- USB-C cable
-- Xteink X3 and/or X4 device for hardware testing
+- PlatformIO Core;
+- Python dependencies from `lib/EpdFont/scripts/requirements.txt`;
+- recursive `freeink-sdk` submodule checkout;
+- a project path without whitespace.
 
-If `./bin/clang-format-fix` fails with either of these errors, install clang-format 21:
-
-- `clang-format: No such file or directory`
-- `.clang-format: error: unknown key 'AlignFunctionDeclarations'`
-
-Examples:
-
-```sh
-# Debian/Ubuntu (try this first)
-sudo apt-get update && sudo apt-get install -y clang-format-21
-
-# If the package is unavailable, add LLVM apt repo and retry
-wget https://apt.llvm.org/llvm.sh
-chmod +x llvm.sh
-sudo ./llvm.sh 21
-sudo apt-get update
-sudo apt-get install -y clang-format-21
-
-# macOS (Homebrew)
-brew install clang-format
-```
-
-Then verify:
-
-```sh
-clang-format-21 --version
-```
-
-The reported major version must be 21 or newer.
-
-## Clone and initialize
-
-```sh
-git clone --recursive https://github.com/crosspoint-reader/crosspoint-reader
-cd crosspoint-reader
-```
-
-If you already cloned without submodules:
-
-```sh
+```bash
 git submodule update --init --recursive
+python3 -m pip install -r lib/EpdFont/scripts/requirements.txt
+pio run -e x4pro
+cmake -S test -B build/test -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/test
+ctest --test-dir build/test --output-on-failure
+python3 test/x4pro_safe_flash_test.py
 ```
 
-Enable the repository-managed Git hooks (required once per clone):
-
-```sh
-git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit
-```
-
-## Build
-
-```sh
-pio run
-```
-
-## Flash
-
-```sh
-pio run --target upload
-```
-
-## First checks before opening a PR
-
-```sh
-./bin/clang-format-fix
-pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
-pio run
-```
-
-## What to read next
-
-- [Architecture Overview](./architecture.md)
-- [Development Workflow](./development-workflow.md)
-- [Testing and Debugging](./testing-debugging.md)
+Hardware testing must follow `README.md`: full 16-MB backup, a second ROM-mode
+verification, app0-only installation, readback verification, and preservation of
+factory app1/NVS. Do not test by flashing bootloader, partition table or a merged
+factory image.
