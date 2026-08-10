@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.10" src="https://img.shields.io/badge/version-2.2.10-000000">
+  <img alt="Version 2.2.11" src="https://img.shields.io/badge/version-2.2.11-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,11 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Adjustable reading and interface density in 2.2.11.** Reader line spacing now continues beyond Wide with
+  **Extra Wide** and **Maximum**, including font-specific values that preserve the existing three pagination choices.
+  Interface settings add a persistent **Standard / Compact** profile: Compact uses the smaller embedded Inter cuts,
+  tighter headers and rows, and slightly wider text lanes so long book titles and setting labels fit while selection,
+  icons, Korean fallback glyphs, custom SD interface fonts, and X3/X4 geometry remain coordinated.
 - **Faster wake and reader navigation in 2.2.10.** Normal wake no longer pays a fixed half-second recovery-chord delay
   or waits for the Power button to be released before the first screen can render. The release is quarantined without
   blocking, nonessential network stores load alongside the first frame, and SD recovery remains available with

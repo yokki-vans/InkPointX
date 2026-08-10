@@ -225,9 +225,13 @@ void applyInterfaceFont() {
   // closest size it ships, and every slot it cannot cover keeps the built-in
   // face — a card font with only two sizes is still usable, and a card that
   // was pulled out falls back to a complete interface rather than a blank one.
-  static constexpr SdCardFontSystem::InterfaceSlot uiSlots[] = {
+  static constexpr SdCardFontSystem::InterfaceSlot standardUiSlots[] = {
       {MICRO_FONT_ID, 8, 2},  {SMALL_FONT_ID, 10, 2}, {UI_10_FONT_ID, 12, 2}, {UI_12_FONT_ID, 14, 2},
       {UI_14_FONT_ID, 16, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
+  };
+  static constexpr SdCardFontSystem::InterfaceSlot compactUiSlots[] = {
+      {MICRO_FONT_ID, 8, 2},  {SMALL_FONT_ID, 8, 2},  {UI_10_FONT_ID, 10, 2}, {UI_12_FONT_ID, 12, 2},
+      {UI_14_FONT_ID, 14, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
   };
   static constexpr SdCardFontSystem::InterfaceSlot accentSlots[] = {
       {SCRIPT_SMALL_FONT_ID, 16, 6},
@@ -236,11 +240,17 @@ void applyInterfaceFont() {
 
   sdFontSystem.unloadInterfaceFaces(renderer);
   const bool korean = I18N.getLanguage() == Language::KO;
+  const bool compact = SETTINGS.uiDensity == CrossPointSettings::UI_COMPACT;
   // The catalog's optional interface families do not promise Hangul coverage.
   // Preserve the user's selection, but use the complete built-in Noto Sans KR
   // scale while Korean is active; switching languages restores that selection.
   if (!korean && SETTINGS.uiSdFontFamilyName[0] != '\0') {
-    sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, uiSlots, std::size(uiSlots));
+    if (compact) {
+      sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, compactUiSlots, std::size(compactUiSlots));
+    } else {
+      sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, standardUiSlots,
+                                      std::size(standardUiSlots));
+    }
   }
   if (!korean && SETTINGS.scriptSdFontFamilyName[0] != '\0') {
     sdFontSystem.loadInterfaceFaces(SETTINGS.scriptSdFontFamilyName, renderer, accentSlots, std::size(accentSlots));
@@ -249,14 +259,19 @@ void applyInterfaceFont() {
   const auto fillSlot = [](const int fontId, const EpdFontFamily& family) {
     if (renderer.getFontMap().count(fontId) == 0) renderer.insertFont(fontId, family);
   };
-  fillSlot(MICRO_FONT_ID, korean ? ui8KoreanFontFamily : ui8FontFamily);    // 8 pt — keyboard, captions
-  fillSlot(SMALL_FONT_ID, korean ? ui10KoreanFontFamily : ui10FontFamily);  // 10 pt — legends
-  fillSlot(UI_10_FONT_ID, korean ? ui12KoreanFontFamily : ui12FontFamily);  // 12 pt — labels, values
-  fillSlot(UI_12_FONT_ID, korean ? ui14KoreanFontFamily : ui14FontFamily);  // 14 pt — list row titles
-  fillSlot(UI_14_FONT_ID, korean ? ui16KoreanFontFamily : ui16FontFamily);  // 16 pt — book titles
+  fillSlot(MICRO_FONT_ID, korean ? ui8KoreanFontFamily : ui8FontFamily);  // 8 pt — keyboard, captions
+  fillSlot(SMALL_FONT_ID,
+           compact ? (korean ? ui8KoreanFontFamily : ui8FontFamily) : (korean ? ui10KoreanFontFamily : ui10FontFamily));
+  fillSlot(UI_10_FONT_ID, compact ? (korean ? ui10KoreanFontFamily : ui10FontFamily)
+                                  : (korean ? ui12KoreanFontFamily : ui12FontFamily));
+  fillSlot(UI_12_FONT_ID, compact ? (korean ? ui12KoreanFontFamily : ui12FontFamily)
+                                  : (korean ? ui14KoreanFontFamily : ui14FontFamily));
+  fillSlot(UI_14_FONT_ID, compact ? (korean ? ui14KoreanFontFamily : ui14FontFamily)
+                                  : (korean ? ui16KoreanFontFamily : ui16FontFamily));
   fillSlot(UI_16_FONT_ID, korean ? ui16KoreanFontFamily : ui16FontFamily);
   fillSlot(UI_18_FONT_ID, korean ? ui16KoreanFontFamily : ui16FontFamily);
-  fillSlot(HEADER_FONT_ID, korean ? ui16KoreanFontFamily : uiHeaderFontFamily);
+  fillSlot(HEADER_FONT_ID, compact ? (korean ? ui14KoreanFontFamily : ui14FontFamily)
+                                   : (korean ? ui16KoreanFontFamily : uiHeaderFontFamily));
   // Caveat has no Korean design. Keep the accent slots legible and size-stable
   // with the 16 px Noto Sans KR face instead of embedding duplicate Hangul.
   fillSlot(SCRIPT_SMALL_FONT_ID, korean ? ui16KoreanFontFamily : uiScriptSmallFontFamily);

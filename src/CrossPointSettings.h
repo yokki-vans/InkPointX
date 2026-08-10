@@ -105,7 +105,7 @@ class CrossPointSettings {
   static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
   // Font size options
   enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
-  enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
+  enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, EXTRA_WIDE = 3, MAXIMUM = 4, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
     LEFT_ALIGN = 1,
@@ -164,6 +164,7 @@ class CrossPointSettings {
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3 };
   enum UI_FONT_FAMILY { UI_INTER = 0, UI_FONT_FAMILY_COUNT };
+  enum UI_DENSITY { UI_STANDARD = 0, UI_COMPACT = 1, UI_DENSITY_COUNT };
   enum HOME_METADATA_MODE {
     HOME_METADATA_AUTO = 0,
     HOME_METADATA_SHOW = 1,
@@ -268,6 +269,10 @@ class CrossPointSettings {
   uint8_t uiTheme = LYRA;
   // Interface font family. Reader fonts are configured separately.
   uint8_t uiFontFamily = UI_INTER;
+  // Standard preserves the established layout; Compact reduces Inter and row
+  // chrome together so long labels fit the small panel without looking lost
+  // inside oversized controls.
+  uint8_t uiDensity = UI_STANDARD;
   // Compact physical-button hints at the edge of UI screens (1 = shown, 0 = hidden).
   uint8_t showButtonHints = 1;
   // Optional metadata on the Now Reading home page. AUTO hides metadata when

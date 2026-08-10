@@ -374,9 +374,10 @@ void SettingsActivity::toggleCurrentSetting() {
   if (setting.valuePtr == &CrossPointSettings::uiFontFamily) {
     applyInterfaceFont();
   }
-  if (setting.valuePtr == &CrossPointSettings::showButtonHints) {
+  if (setting.valuePtr == &CrossPointSettings::showButtonHints || setting.valuePtr == &CrossPointSettings::uiDensity) {
     UITheme::getInstance().reload();
   }
+  if (setting.valuePtr == &CrossPointSettings::uiDensity) applyInterfaceFont();
   syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
   SETTINGS.saveToFile();
   rebuildSettingsLists();

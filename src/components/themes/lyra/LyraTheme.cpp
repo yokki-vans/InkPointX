@@ -39,7 +39,7 @@ constexpr int toggleHeight = 28;
 // Space kept clear on the right of every list and menu for the scroll indicator,
 // reserved unconditionally so a selection box does not shift when a list grows
 // past one page.
-constexpr int scrollGutterWidth = LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset;
+int scrollGutterWidth(const ThemeMetrics& metrics) { return metrics.scrollBarWidth + metrics.scrollBarRightOffset; }
 // Vertical breathing room between a row's bounds and its selection outline.
 // Shared by lists and menu tiles so the selection is the same height on both.
 constexpr int selectionVerticalInset = 4;
@@ -195,11 +195,12 @@ void LyraTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
 }
 
 void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
   constexpr int titleTop = 11;
-  const int contentLeft = rect.x + LyraMetrics::values.contentSidePadding;
-  int contentRight = rect.x + rect.width - LyraMetrics::values.contentSidePadding;
-  const bool primaryHeader = rect.y <= LyraMetrics::values.topPadding;
+  const int contentLeft = rect.x + metrics.contentSidePadding;
+  int contentRight = rect.x + rect.width - metrics.contentSidePadding;
+  const bool primaryHeader = rect.y <= metrics.topPadding;
   if (primaryHeader && SETTINGS.showBatteryIndicator) {
     contentRight -= UITheme::getInstance().getSystemBatteryOverlayWidth(renderer) + hPaddingInSelection;
   }
@@ -227,35 +228,36 @@ void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     const int headingX = rtl ? contentRight - headingWidth : contentLeft;
     renderer.drawText(HEADER_FONT_ID, headingX, rect.y + titleTop, heading.c_str(), true, EpdFontFamily::BOLD);
   }
-  drawHairline(renderer, contentLeft, rect.x + rect.width - LyraMetrics::values.contentSidePadding,
-               rect.y + rect.height - 2);
+  drawHairline(renderer, contentLeft, rect.x + rect.width - metrics.contentSidePadding, rect.y + rect.height - 2);
 }
 
 void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
   const bool rtl = label && BidiUtils::startsWithRtl(label);
-  int secondarySpace = LyraMetrics::values.contentSidePadding;
+  int secondarySpace = metrics.contentSidePadding;
   if (rightLabel) {
     auto secondary = renderer.truncatedText(SMALL_FONT_ID, rightLabel, maxListValueWidth, EpdFontFamily::REGULAR);
     const int secondaryWidth = renderer.getTextWidth(SMALL_FONT_ID, secondary.c_str());
-    const int secondaryX = rtl ? rect.x + LyraMetrics::values.contentSidePadding
-                               : rect.x + rect.width - LyraMetrics::values.contentSidePadding - secondaryWidth;
+    const int secondaryX =
+        rtl ? rect.x + metrics.contentSidePadding : rect.x + rect.width - metrics.contentSidePadding - secondaryWidth;
     renderer.drawText(SMALL_FONT_ID, secondaryX, rect.y + 9, secondary.c_str());
     secondarySpace += secondaryWidth + hPaddingInSelection;
   }
 
-  auto heading = renderer.truncatedText(
-      UI_10_FONT_ID, label, rect.width - LyraMetrics::values.contentSidePadding - secondarySpace, EpdFontFamily::BOLD);
+  auto heading = renderer.truncatedText(UI_10_FONT_ID, label, rect.width - metrics.contentSidePadding - secondarySpace,
+                                        EpdFontFamily::BOLD);
   const int headingWidth = renderer.getTextWidth(UI_10_FONT_ID, heading.c_str());
-  const int headingX = rtl ? rect.x + rect.width - LyraMetrics::values.contentSidePadding - headingWidth
-                           : rect.x + LyraMetrics::values.contentSidePadding;
+  const int headingX =
+      rtl ? rect.x + rect.width - metrics.contentSidePadding - headingWidth : rect.x + metrics.contentSidePadding;
   renderer.drawText(UI_10_FONT_ID, headingX, rect.y + 8, heading.c_str(), true, EpdFontFamily::BOLD);
 
-  drawHairline(renderer, rect.x + LyraMetrics::values.contentSidePadding,
-               rect.x + rect.width - LyraMetrics::values.contentSidePadding, rect.y + rect.height - 1);
+  drawHairline(renderer, rect.x + metrics.contentSidePadding, rect.x + rect.width - metrics.contentSidePadding,
+               rect.y + rect.height - 1);
 }
 
 int LyraTheme::getListPageItems(int contentHeight, bool hasSubtitle) const {
-  int rowHeight = (hasSubtitle) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  int rowHeight = hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
   return contentHeight / rowHeight;
 }
 
@@ -267,7 +269,8 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<bool(int index)>& rowDimmed,
                          const std::function<UIAccessory(int index)>& rowAccessory,
                          const std::function<bool(int index)>& rowSection) const {
-  const int rowHeight = rowSubtitle ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int rowHeight = rowSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
   const int titleFontId = rowSubtitle ? UI_12_FONT_ID : UI_10_FONT_ID;
   const int subtitleFontId = UI_10_FONT_ID;
   const int pageItems = std::max(1, rect.height / rowHeight);
@@ -326,26 +329,25 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
         rowSection
             ? rect.y + ((scrollAreaHeight - scrollBarHeight) * pageStartIndex) / std::max(1, itemCount - pageItems)
             : rect.y + ((scrollAreaHeight - scrollBarHeight) * (selectedIndex / pageItems)) / (totalPages - 1);
-    const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
-    renderer.fillRoundedRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY,
-                             LyraMetrics::values.scrollBarWidth, scrollBarHeight,
-                             LyraMetrics::values.scrollBarWidth / 2, Color::Black);
+    const int scrollBarX = rect.x + rect.width - metrics.scrollBarRightOffset;
+    renderer.fillRoundedRect(scrollBarX - metrics.scrollBarWidth, scrollBarY, metrics.scrollBarWidth, scrollBarHeight,
+                             metrics.scrollBarWidth / 2, Color::Black);
   }
 
   // Reserve the scroll gutter whether or not a scrollbar is showing. Sizing it
   // conditionally moved every selection box 10 px sideways the moment a library
   // grew past one page, and the old `: 1` fallback also left list selections one
   // pixel narrower than the menu tiles they sit next to on Home.
-  const int contentWidth = rect.width - scrollGutterWidth;
+  const int contentWidth = rect.width - scrollGutterWidth(metrics);
   if (selectedIndex >= 0) {
     const int selectedY = rect.y + (selectedIndex - pageStartIndex) * rowHeight;
-    drawSelection(renderer, Rect{rect.x + LyraMetrics::values.contentSidePadding, selectedY + selectionVerticalInset,
-                                 contentWidth - LyraMetrics::values.contentSidePadding * 2,
-                                 rowHeight - selectionVerticalInset * 2});
+    drawSelection(renderer,
+                  Rect{rect.x + metrics.contentSidePadding, selectedY + selectionVerticalInset,
+                       contentWidth - metrics.contentSidePadding * 2, rowHeight - selectionVerticalInset * 2});
   }
 
-  const int rowLeft = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
-  const int rowRight = rect.x + contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection;
+  const int rowLeft = rect.x + metrics.contentSidePadding + hPaddingInSelection;
+  const int rowRight = rect.x + contentWidth - metrics.contentSidePadding - hPaddingInSelection;
   const int iconSize = rowIcon ? listIconSize : 0;
   const int titleLineHeight = renderer.getLineHeight(titleFontId);
 
@@ -481,8 +483,8 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   if (!SETTINGS.showButtonHints) return;
 
   const int screenWidth = renderer.getScreenWidth();
-  constexpr int buttonWidth = LyraMetrics::values.sideButtonHintsWidth;  // Width on screen (height when rotated)
-  constexpr int buttonHeight = 78;                                       // Height on screen (width when rotated)
+  const int buttonWidth = UITheme::getInstance().getMetrics().sideButtonHintsWidth;
+  constexpr int buttonHeight = 78;  // Height on screen (width when rotated)
   constexpr int buttonMargin = 0;
 
   if (gpio.deviceIsX3()) {
@@ -538,6 +540,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
   std::string labels;
   for (int i = 0; i < buttonCount; ++i) {
     const std::string label = buttonLabel(i);
@@ -551,10 +554,10 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
   for (int i = 0; i < buttonCount; ++i) {
     // Same right edge and same vertical inset as drawList, so a selection moving
     // between menu tiles and list rows on one screen does not visibly jog.
-    const int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2 - scrollGutterWidth;
-    const Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
-                               rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing),
-                               tileWidth, LyraMetrics::values.menuRowHeight};
+    const int tileWidth = rect.width - metrics.contentSidePadding * 2 - scrollGutterWidth(metrics);
+    const Rect tileRect =
+        Rect{rect.x + metrics.contentSidePadding, rect.y + i * (metrics.menuRowHeight + metrics.menuSpacing), tileWidth,
+             metrics.menuRowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -591,7 +594,7 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 
     const bool nextSelected = i + 1 == selectedIndex;
     if (!selected && !nextSelected && i + 1 < buttonCount) {
-      drawHairline(renderer, textLeft, textRight, tileRect.y + tileRect.height + LyraMetrics::values.menuSpacing / 2);
+      drawHairline(renderer, textLeft, textRight, tileRect.y + tileRect.height + metrics.menuSpacing / 2);
     }
   }
 }

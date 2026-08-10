@@ -33,6 +33,15 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   static LyraTheme lyraTheme;
   currentTheme = &lyraTheme;
   currentMetrics = LyraMetrics::values;
+  if (SETTINGS.uiDensity == CrossPointSettings::UI_COMPACT) {
+    currentMetrics.headerHeight = 60;
+    currentMetrics.verticalSpacing = 6;
+    currentMetrics.contentSidePadding = 16;
+    currentMetrics.listRowHeight = 54;
+    currentMetrics.listWithSubtitleRowHeight = 76;
+    currentMetrics.menuRowHeight = 58;
+    currentMetrics.subHeaderHeight = 44;
+  }
   if (!SETTINGS.showButtonHints) {
     currentMetrics.buttonHintsHeight = 0;
     currentMetrics.sideButtonHintsWidth = 0;
