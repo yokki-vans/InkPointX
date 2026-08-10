@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.11" src="https://img.shields.io/badge/version-2.2.11-000000">
+  <img alt="Version 2.2.12" src="https://img.shields.io/badge/version-2.2.12-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,10 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Short, fully visible web pairing codes in 2.2.12.** File Transfer now shows an eight-character, unambiguous
+  pairing code that is practical to type manually. The address and code are losslessly fitted or wrapped instead of
+  being cut off with an ellipsis on either X3 or X4. After pairing, the browser is upgraded to a separate random
+  128-bit HttpOnly session credential, preserving strong protection for the web UI, WebSocket uploads, and WebDAV.
 - **Adjustable reading and interface density in 2.2.11.** Reader line spacing now continues beyond Wide with
   **Extra Wide** and **Maximum**, including font-specific values that preserve the existing three pagination choices.
   Interface settings add a persistent **Standard / Compact** profile: Compact uses the smaller embedded Inter cuts,

@@ -9,6 +9,8 @@
 #include <memory>
 #include <string>
 
+#include "PairingCredentials.h"
+
 // Structure to hold file information
 struct FileInfo {
   String name;
@@ -68,10 +70,10 @@ class CrossPointWebServer {
   // Get the port number
   uint16_t getPort() const { return port; }
 
-  // Per-server-session credential. The activity should put this in the shown
-  // URL as `?pair=<token>`; the first successful request receives an HttpOnly
-  // session cookie used by the web UI and WebSocket connection.
-  const char* getPairingToken() const { return pairingToken.data(); }
+  // Short, unambiguous per-server-session code intended for manual entry. The
+  // first successful request exchanges it for a longer HttpOnly session
+  // cookie used by the web UI and WebSocket connection.
+  const char* getPairingCode() const { return pairingCode.data(); }
 
   // Authentication is captured when this server session is created. This
   // keeps the QR/address shown by the activity consistent for its lifetime.
@@ -87,9 +89,10 @@ class CrossPointWebServer {
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
-  std::array<char, 33> pairingToken{};  // 128 random bits as lowercase hex
+  std::array<char, PairingCredentials::SESSION_TOKEN_LENGTH + 1> sessionToken{};
+  std::array<char, PairingCredentials::CODE_LENGTH + 1> pairingCode{};
 
-  void generatePairingToken();
+  void generatePairingCredentials();
   bool isAuthorizedRequest(WebServer& request) const;
   void rejectUnauthorized(WebServer& request) const;
 

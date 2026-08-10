@@ -21,26 +21,35 @@ const char* FIXED_DATE = "Thu, 01 Jan 2024 00:00:00 GMT";
 
 }  // namespace
 
-WebDAVHandler::WebDAVHandler(const char* pairingToken, const bool authenticationEnabled)
+WebDAVHandler::WebDAVHandler(const char* sessionToken, const char* pairingCode, const bool authenticationEnabled)
     : _authenticationEnabled(authenticationEnabled) {
-  if (!pairingToken) return;
-  strncpy(_pairingToken, pairingToken, sizeof(_pairingToken) - 1);
-  _pairingToken[sizeof(_pairingToken) - 1] = '\0';
+  if (sessionToken) {
+    strncpy(_sessionToken, sessionToken, sizeof(_sessionToken) - 1);
+    _sessionToken[sizeof(_sessionToken) - 1] = '\0';
+  }
+  if (pairingCode) {
+    strncpy(_pairingCode, pairingCode, sizeof(_pairingCode) - 1);
+    _pairingCode[sizeof(_pairingCode) - 1] = '\0';
+  }
 }
 
 bool WebDAVHandler::isAuthorized(WebServer& s) const {
   if (!_authenticationEnabled) return true;
-  const auto tokenMatches = [this](const String& supplied) {
-    if (supplied.length() != 32) return false;
+  const auto credentialMatches = [](const String& supplied, const char* expected, const size_t expectedLength) {
+    if (!expected || supplied.length() != expectedLength) return false;
     uint8_t difference = 0;
-    for (size_t i = 0; i < 32; ++i) {
-      difference |= static_cast<uint8_t>(supplied.charAt(i)) ^ static_cast<uint8_t>(_pairingToken[i]);
+    for (size_t i = 0; i < expectedLength; ++i) {
+      difference |= static_cast<uint8_t>(supplied.charAt(i)) ^ static_cast<uint8_t>(expected[i]);
     }
     return difference == 0;
   };
 
-  if (s.hasArg("pair") && tokenMatches(s.arg("pair"))) return true;
-  if (tokenMatches(s.header("X-InkPoint-Token"))) return true;
+  if (s.hasArg("pair") && credentialMatches(s.arg("pair"), _pairingCode, PairingCredentials::CODE_LENGTH)) {
+    return true;
+  }
+  if (credentialMatches(s.header("X-InkPoint-Token"), _pairingCode, PairingCredentials::CODE_LENGTH)) {
+    return true;
+  }
 
   const String cookie = s.header("Cookie");
   const char* current = cookie.c_str();
@@ -49,13 +58,14 @@ bool WebDAVHandler::isAuthorized(WebServer& s) const {
     while (*current == ' ' || *current == ';') ++current;
     const char* end = strchr(current, ';');
     if (!end) end = current + strlen(current);
-    if (static_cast<size_t>(end - current) == sizeof(cookieName) - 1 + 1 + 32 &&
+    if (static_cast<size_t>(end - current) == sizeof(cookieName) - 1 + 1 + PairingCredentials::SESSION_TOKEN_LENGTH &&
         strncmp(current, cookieName, sizeof(cookieName) - 1) == 0 && current[sizeof(cookieName) - 1] == '=') {
-      return tokenMatches(String(current + sizeof(cookieName), 32));
+      return credentialMatches(String(current + sizeof(cookieName), PairingCredentials::SESSION_TOKEN_LENGTH),
+                               _sessionToken, PairingCredentials::SESSION_TOKEN_LENGTH);
     }
     current = *end ? end + 1 : end;
   }
-  return s.authenticate("inkpoint", _pairingToken);
+  return s.authenticate("inkpoint", _pairingCode);
 }
 
 // ── RequestHandler interface ─────────────────────────────────────────────────

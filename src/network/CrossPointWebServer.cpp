@@ -17,6 +17,7 @@
 #include "FontInstaller.h"
 #include "HttpDownloader.h"
 #include "OpdsServerStore.h"
+#include "PairingCredentials.h"
 #include "SdCardFont.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
@@ -141,27 +142,26 @@ bool isSafeItemName(const String& name) {
   return name.indexOf("..") < 0;
 }
 
-bool secureTokenEquals(const String& supplied, const char* expected) {
-  constexpr size_t TOKEN_LENGTH = 32;
-  if (!expected || supplied.length() != TOKEN_LENGTH) return false;
+bool secureCredentialEquals(const String& supplied, const char* expected, const size_t expectedLength) {
+  if (!expected || supplied.length() != expectedLength) return false;
   uint8_t difference = 0;
-  for (size_t i = 0; i < TOKEN_LENGTH; ++i) {
+  for (size_t i = 0; i < expectedLength; ++i) {
     difference |= static_cast<uint8_t>(supplied.charAt(i)) ^ static_cast<uint8_t>(expected[i]);
   }
   return difference == 0;
 }
 
-bool cookieHasPairingToken(const String& cookie, const char* expected) {
+bool cookieHasSessionToken(const String& cookie, const char* expected) {
   const char* current = cookie.c_str();
   constexpr size_t nameLength = 12;  // strlen("InkPointPair")
   while (*current) {
     while (*current == ' ' || *current == ';') ++current;
     const char* end = strchr(current, ';');
     if (!end) end = current + strlen(current);
-    if (static_cast<size_t>(end - current) == nameLength + 1 + 32 &&
+    if (static_cast<size_t>(end - current) == nameLength + 1 + PairingCredentials::SESSION_TOKEN_LENGTH &&
         strncmp(current, PAIRING_COOKIE, nameLength) == 0 && current[nameLength] == '=') {
-      String value(current + nameLength + 1, 32);
-      return secureTokenEquals(value, expected);
+      String value(current + nameLength + 1, PairingCredentials::SESSION_TOKEN_LENGTH);
+      return secureCredentialEquals(value, expected, PairingCredentials::SESSION_TOKEN_LENGTH);
     }
     current = *end ? end + 1 : end;
   }
@@ -178,26 +178,42 @@ CrossPointWebServer::CrossPointWebServer() : authenticationEnabled(SETTINGS.webI
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
-void CrossPointWebServer::generatePairingToken() {
+void CrossPointWebServer::generatePairingCredentials() {
   static constexpr char hex[] = "0123456789abcdef";
   for (size_t word = 0; word < 4; ++word) {
     uint32_t random = esp_random();
     for (size_t nibble = 0; nibble < 8; ++nibble) {
-      pairingToken[word * 8 + 7 - nibble] = hex[random & 0x0F];
+      sessionToken[word * 8 + 7 - nibble] = hex[random & 0x0F];
       random >>= 4;
     }
   }
-  pairingToken[32] = '\0';
+  sessionToken[PairingCredentials::SESSION_TOKEN_LENGTH] = '\0';
+
+  // Crockford-style lower-case Base32 avoids i/l/o/u and is convenient on a
+  // phone URL keyboard. Eight symbols provide 40 random bits for this
+  // short-lived, local-network pairing step.
+  static constexpr char alphabet[] = "0123456789abcdefghjkmnpqrstvwxyz";
+  static_assert(sizeof(alphabet) - 1 == 32);
+  static_assert(PairingCredentials::CODE_LENGTH * 5 <= 64);
+  uint64_t random = (static_cast<uint64_t>(esp_random()) << 32) | esp_random();
+  for (size_t i = 0; i < PairingCredentials::CODE_LENGTH; ++i) {
+    pairingCode[i] = alphabet[random & 0x1F];
+    random >>= 5;
+  }
+  pairingCode[PairingCredentials::CODE_LENGTH] = '\0';
 }
 
 bool CrossPointWebServer::isAuthorizedRequest(WebServer& request) const {
   if (!authenticationEnabled) return true;
-  if (request.hasArg(PAIRING_QUERY) && secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data())) {
+  if (request.hasArg(PAIRING_QUERY) &&
+      secureCredentialEquals(request.arg(PAIRING_QUERY), pairingCode.data(), PairingCredentials::CODE_LENGTH)) {
     return true;
   }
-  if (secureTokenEquals(request.header(PAIRING_HEADER), pairingToken.data())) return true;
-  if (cookieHasPairingToken(request.header("Cookie"), pairingToken.data())) return true;
-  return request.authenticate("inkpoint", pairingToken.data());
+  if (secureCredentialEquals(request.header(PAIRING_HEADER), pairingCode.data(), PairingCredentials::CODE_LENGTH)) {
+    return true;
+  }
+  if (cookieHasSessionToken(request.header("Cookie"), sessionToken.data())) return true;
+  return request.authenticate("inkpoint", pairingCode.data());
 }
 
 void CrossPointWebServer::rejectUnauthorized(WebServer& request) const {
@@ -212,7 +228,7 @@ void CrossPointWebServer::begin() {
     return;
   }
 
-  generatePairingToken();
+  generatePairingCredentials();
 
   // Check if we have a valid network connection (either STA connected or AP mode)
   const wifi_mode_t wifiMode = WiFi.getMode();
@@ -256,15 +272,16 @@ void CrossPointWebServer::begin() {
   // PUT/multipart callbacks run while the request is parsed, before middleware,
   // so those callbacks repeat the same check before opening any SD file.
   server->addMiddleware([this](WebServer& request, Middleware::Callback next) {
-    const bool pairedByQuery = authenticationEnabled && request.hasArg(PAIRING_QUERY) &&
-                               secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data());
+    const bool pairedByQuery =
+        authenticationEnabled && request.hasArg(PAIRING_QUERY) &&
+        secureCredentialEquals(request.arg(PAIRING_QUERY), pairingCode.data(), PairingCredentials::CODE_LENGTH);
     if (!isAuthorizedRequest(request)) {
       rejectUnauthorized(request);
       return false;
     }
 
     if (pairedByQuery) {
-      String cookie = String(PAIRING_COOKIE) + "=" + pairingToken.data() + "; Path=/; HttpOnly; SameSite=Strict";
+      String cookie = String(PAIRING_COOKIE) + "=" + sessionToken.data() + "; Path=/; HttpOnly; SameSite=Strict";
       request.sendHeader("Set-Cookie", cookie);
       request.sendHeader("Cache-Control", "no-store");
       // Remove the credential from browser history, screenshots and Referer.
@@ -330,7 +347,7 @@ void CrossPointWebServer::begin() {
   const char* requestHeaders[] = {"Depth",      "Destination", "Overwrite", "If",
                                   "Lock-Token", "Timeout",     "Cookie",    PAIRING_HEADER};
   server->collectHeaders(requestHeaders, sizeof(requestHeaders) / sizeof(requestHeaders[0]));
-  auto* davHandler = new (std::nothrow) WebDAVHandler(pairingToken.data(), authenticationEnabled);
+  auto* davHandler = new (std::nothrow) WebDAVHandler(sessionToken.data(), pairingCode.data(), authenticationEnabled);
   if (!davHandler) {
     LOG_ERR("WEB", "No heap for WebDAV handler");
     server.reset();
@@ -357,7 +374,7 @@ void CrossPointWebServer::begin() {
     wsServer->onValidateHttpHeader(
         [this](String name, String value) {
           if (!name.equalsIgnoreCase("Cookie")) return true;
-          return cookieHasPairingToken(value, pairingToken.data());
+          return cookieHasSessionToken(value, sessionToken.data());
         },
         mandatoryWsHeaders, 1);
   }

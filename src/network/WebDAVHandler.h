@@ -3,9 +3,11 @@
 #include <HalStorage.h>
 #include <WebServer.h>
 
+#include "PairingCredentials.h"
+
 class WebDAVHandler : public RequestHandler {
  public:
-  explicit WebDAVHandler(const char* pairingToken, bool authenticationEnabled = true);
+  WebDAVHandler(const char* sessionToken, const char* pairingCode, bool authenticationEnabled = true);
 
   // RequestHandler interface
   bool canHandle(WebServer& server, HTTPMethod method, const String& uri) override;
@@ -21,7 +23,8 @@ class WebDAVHandler : public RequestHandler {
   bool _putOk = false;
   bool _putExisted = false;
   size_t _putBytesWritten = 0;
-  char _pairingToken[33] = {};
+  char _sessionToken[PairingCredentials::SESSION_TOKEN_LENGTH + 1] = {};
+  char _pairingCode[PairingCredentials::CODE_LENGTH + 1] = {};
   bool _authenticationEnabled = true;
 
   // WebDAV method handlers

@@ -426,17 +426,40 @@ void CrossPointWebServerActivity::renderServerRunning() const {
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
   const bool authenticationEnabled = webServer && webServer->isAuthenticationEnabled();
   const std::string pairSuffix =
-      authenticationEnabled ? std::string("?pair=") + webServer->getPairingToken() : std::string();
+      authenticationEnabled ? std::string("?pair=") + webServer->getPairingCode() : std::string();
   const int textMaxWidth = pageWidth - metrics.contentSidePadding * 2;
   // The two instruction lines are wider than the panel in most locales, so
-  // they wrap; the QR captions are truncated to the lane beside the code and
-  // stacked a full line box apart (they used to overlap by ~10 px and run off
-  // the right edge).
+  // they wrap. Address and credential captions below use lossless fitting.
   const auto drawWrapped = [&](const char* textToWrap) {
     for (const auto& line : renderer.wrappedText(UI_10_FONT_ID, textToWrap, textMaxWidth, 2, EpdFontFamily::BOLD)) {
       renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, line.c_str(), true, EpdFontFamily::BOLD);
       startY += height10;
     }
+  };
+  // Credentials must never be ellipsized. Prefer the requested font, fall
+  // back to the micro font, then split an ASCII URL/code at the last glyph
+  // that fits the lane. The return value is the first free Y coordinate.
+  const auto drawFully = [&](const std::string& text, const int preferredFont, const int laneX, int y,
+                             const int laneWidth, const bool centered) {
+    int fontId = preferredFont;
+    if (renderer.getTextWidth(fontId, text.c_str()) > laneWidth) fontId = MICRO_FONT_ID;
+    const int lineHeight = renderer.getLineHeight(fontId);
+    size_t offset = 0;
+    while (offset < text.size()) {
+      size_t end = offset + 1;
+      while (end <= text.size() &&
+             renderer.getTextWidth(fontId, text.substr(offset, end - offset).c_str()) <= laneWidth) {
+        ++end;
+      }
+      if (end > offset + 1) --end;
+      const std::string line = text.substr(offset, end - offset);
+      const int lineWidth = renderer.getTextWidth(fontId, line.c_str());
+      const int x = centered ? laneX + std::max(0, (laneWidth - lineWidth) / 2) : laneX;
+      renderer.drawText(fontId, x, y, line.c_str());
+      y += lineHeight + 5;
+      offset = end;
+    }
+    return y;
   };
   if (isApMode) {
     // AP mode display
@@ -466,18 +489,21 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     // QR uses the numeric address so it works on phones that do not resolve
     // mDNS (common on Android and in AP mode). The pairing query is consumed
     // once and removed from browser history by the server.
-    std::string hostnameUrl = "http://" + connectedIP + "/" + pairSuffix;
-    std::string ipUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/" + pairSuffix;
+    const std::string baseUrl = "http://" + connectedIP + "/";
+    const std::string hostnameUrl = baseUrl + pairSuffix;
+    const std::string mdnsUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
 
     // Show QR code for URL
     const Rect qrBoundsUrl(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBoundsUrl, hostnameUrl);
 
-    // Show IP address as fallback
-    renderer.drawText(UI_10_FONT_ID, captionX, startY + 80,
-                      renderer.truncatedText(UI_10_FONT_ID, hostnameUrl.c_str(), captionMaxWidth).c_str());
-    renderer.drawText(SMALL_FONT_ID, captionX, startY + 80 + height10,
-                      renderer.truncatedText(SMALL_FONT_ID, ipUrl.c_str(), captionMaxWidth).c_str());
+    // Keep the short pairing code on its own complete line so it can be typed
+    // even when a custom font makes the surrounding addresses wider.
+    int captionY = drawFully(baseUrl, UI_10_FONT_ID, captionX, startY + 66, captionMaxWidth, false);
+    if (authenticationEnabled) {
+      captionY = drawFully(pairSuffix, SMALL_FONT_ID, captionX, captionY, captionMaxWidth, false);
+    }
+    drawFully(mdnsUrl, SMALL_FONT_ID, captionX, captionY, captionMaxWidth, false);
   } else {
     startY += metrics.verticalSpacing * 2;
 
@@ -494,30 +520,20 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     QrUtils::drawQrCode(renderer, qrBounds, webInfo);
     startY += QR_CODE_HEIGHT + metrics.verticalSpacing * 2;
 
-    // Keep the full authenticated URL in the QR payload, but render its base
-    // address and 32-character pairing query on separate bounded lines. A
-    // single unbounded URL used to run beyond both edges of the 480 px X4.
+    // Keep the full authenticated URL in the QR payload and print the short
+    // query in full. drawFully() splits instead of losing characters to an
+    // ellipsis, including with wide custom fonts.
     const std::string ipUrl = "http://" + connectedIP + "/";
-    renderer.drawCenteredText(
-        UI_10_FONT_ID, startY,
-        renderer.truncatedText(UI_10_FONT_ID, ipUrl.c_str(), textMaxWidth, EpdFontFamily::BOLD).c_str(), true,
-        EpdFontFamily::BOLD);
-    startY += height10 + 5;
+    startY = drawFully(ipUrl, UI_10_FONT_ID, metrics.contentSidePadding, startY, textMaxWidth, true);
 
     if (authenticationEnabled) {
-      renderer.drawCenteredText(
-          SMALL_FONT_ID, startY,
-          renderer.truncatedText(SMALL_FONT_ID, pairSuffix.c_str(), textMaxWidth, EpdFontFamily::REGULAR).c_str(),
-          true);
-      startY += renderer.getLineHeight(SMALL_FONT_ID) + 5;
+      startY = drawFully(pairSuffix, SMALL_FONT_ID, metrics.contentSidePadding, startY, textMaxWidth, true);
     }
 
     // Also show the mDNS fallback. It uses the same pairing query printed just
     // above, so repeating the long secret is unnecessary.
     const std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
-    renderer.drawCenteredText(
-        SMALL_FONT_ID, startY,
-        renderer.truncatedText(SMALL_FONT_ID, hostnameUrl.c_str(), textMaxWidth, EpdFontFamily::REGULAR).c_str(), true);
+    drawFully(hostnameUrl, SMALL_FONT_ID, metrics.contentSidePadding, startY, textMaxWidth, true);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");
