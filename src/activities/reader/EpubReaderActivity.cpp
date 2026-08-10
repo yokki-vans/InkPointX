@@ -431,6 +431,13 @@ void EpubReaderActivity::loop() {
           }
         }
         break;
+      case CrossPointSettings::LP_MENU_DICTIONARY:
+        if (mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
+          ignoreNextConfirmRelease = true;
+          openDictionary();
+          return;
+        }
+        break;
       case CrossPointSettings::LP_MENU_DISABLED:
       default:
         break;
@@ -685,29 +692,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DICTIONARY: {
-      if (!section || section->pageCount <= 0) {
-        requestUpdate();
-        break;
-      }
-      auto page = section->loadPageFromSectionFile();
-      if (!page) {
-        GUI.drawPopup(renderer, tr(STR_PAGE_LOAD_ERROR));
-        renderer.displayBuffer();
-        delay(900);
-        requestUpdate();
-        break;
-      }
-      int marginTop = 0;
-      int marginRight = 0;
-      int marginBottom = 0;
-      int marginLeft = 0;
-      renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-      marginTop += SETTINGS.screenMargin;
-      marginLeft += SETTINGS.screenMargin;
-      startActivityForResult(
-          makeUniqueNoThrow<EpubDictionaryActivity>(renderer, mappedInput, std::move(page), SETTINGS.getReaderFontId(),
-                                                    marginLeft, marginTop),
-          [this](const ActivityResult&) { requestUpdate(); });
+      openDictionary();
       break;
     }
     case EpubReaderMenuActivity::MenuAction::FOOTNOTES: {
@@ -901,6 +886,31 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
   }
+}
+
+void EpubReaderActivity::openDictionary() {
+  if (!section || section->pageCount == 0) {
+    requestUpdate();
+    return;
+  }
+  auto page = section->loadPageFromSectionFile();
+  if (!page) {
+    GUI.drawPopup(renderer, tr(STR_PAGE_LOAD_ERROR));
+    renderer.displayBuffer();
+    delay(900);
+    requestUpdate();
+    return;
+  }
+  int marginTop = 0;
+  int marginRight = 0;
+  int marginBottom = 0;
+  int marginLeft = 0;
+  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  marginTop += SETTINGS.screenMargin;
+  marginLeft += SETTINGS.screenMargin;
+  startActivityForResult(makeUniqueNoThrow<EpubDictionaryActivity>(renderer, mappedInput, std::move(page),
+                                                                   SETTINGS.getReaderFontId(), marginLeft, marginTop),
+                         [this](const ActivityResult&) { requestUpdate(); });
 }
 
 float EpubReaderActivity::getCurrentBookProgressPercent() const {

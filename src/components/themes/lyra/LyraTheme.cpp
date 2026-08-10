@@ -122,6 +122,16 @@ void drawHairline(const GfxRenderer& renderer, int x1, int x2, int y) {
   for (int x = x1; x <= x2; x += 2) renderer.drawPixel(x, y, true);
 }
 
+int centeredInkTextY(const GfxRenderer& renderer, const int fontId, const char* text, const int centerY,
+                     const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+  int inkTop = 0;
+  int inkHeight = 0;
+  if (renderer.getTextInkBounds(fontId, text, &inkTop, &inkHeight, style)) {
+    return centerY - inkTop - inkHeight / 2;
+  }
+  return centerY - renderer.getLineHeight(fontId) / 2;
+}
+
 bool isBookIcon(const UIIcon icon) { return icon == UIIcon::Book || icon == UIIcon::BookNew; }
 
 int newBadgeWidth(const GfxRenderer& renderer) {
@@ -349,7 +359,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       const auto section = renderer.truncatedText(SCRIPT_FONT_ID, itemName.c_str(), maxSectionWidth);
       const int sectionWidth = renderer.getTextWidth(SCRIPT_FONT_ID, section.c_str());
       const int sectionX = sectionRtl ? rowRight - sectionWidth : rowLeft;
-      const int sectionY = itemY + std::max(0, (rowHeight - renderer.getLineHeight(SCRIPT_FONT_ID)) / 2);
+      const int sectionY = centeredInkTextY(renderer, SCRIPT_FONT_ID, section.c_str(), itemY + rowHeight / 2);
       renderer.drawText(SCRIPT_FONT_ID, sectionX, sectionY, section.c_str());
 
       // A short labelled rule makes the heading read as a section boundary,
@@ -405,7 +415,9 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     // top-anchored title and an empty band below it, which read as a gap in the
     // rhythm rather than as a row with less to say.
     const bool rowHasSubtitle = rowSubtitle && !rowSubtitle(i).empty();
-    const int titleY = rowHasSubtitle ? itemY + 8 : itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
+    const int titleY = rowHasSubtitle
+                           ? itemY + 8
+                           : centeredInkTextY(renderer, titleFontId, item.c_str(), itemY + rowHeight / 2, titleStyle);
     renderer.drawText(titleFontId, titleX, titleY, item.c_str(), true,
                       i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
@@ -438,8 +450,9 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 
     if (!valueText.empty()) {
       const int valueX = rowRtl ? textLeft : textRight - valueWidth;
-      const int valueY = itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
       const auto valueStyle = highlightValue && i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+      const int valueY =
+          centeredInkTextY(renderer, UI_10_FONT_ID, valueText.c_str(), itemY + rowHeight / 2, valueStyle);
       renderer.drawText(UI_10_FONT_ID, valueX, valueY, valueText.c_str(), true, valueStyle);
     }
 
@@ -557,8 +570,7 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const int accessoryX = rtl ? tileRect.x + 12 : tileRect.x + tileRect.width - 28;
     const int textLeft = tileRect.x + 16 + (rtl ? 22 : mainMenuIconSize + hPaddingInSelection);
     const int textRight = tileRect.x + tileRect.width - 16 - (rtl ? mainMenuIconSize + hPaddingInSelection : 22);
-    const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-    const int textY = tileRect.y + (LyraMetrics::values.menuRowHeight - lineHeight) / 2;
+    const auto labelStyle = selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
 
     if (rowIcon) {
       const UIIcon icon = rowIcon(i);
@@ -568,13 +580,12 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                           mainMenuIconSize);
     }
 
-    const auto truncated = renderer.truncatedText(UI_12_FONT_ID, label, std::max(0, textRight - textLeft),
-                                                  selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    const int labelWidth = renderer.getTextWidth(UI_12_FONT_ID, truncated.c_str(),
-                                                 selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const auto truncated = renderer.truncatedText(UI_12_FONT_ID, label, std::max(0, textRight - textLeft), labelStyle);
+    const int labelWidth = renderer.getTextWidth(UI_12_FONT_ID, truncated.c_str(), labelStyle);
     const int textX = rtl ? textRight - labelWidth : textLeft;
-    renderer.drawText(UI_12_FONT_ID, textX, textY, truncated.c_str(), true,
-                      selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const int textY =
+        centeredInkTextY(renderer, UI_12_FONT_ID, truncated.c_str(), tileRect.y + tileRect.height / 2, labelStyle);
+    renderer.drawText(UI_12_FONT_ID, textX, textY, truncated.c_str(), true, labelStyle);
     drawAccessory(renderer, UIAccessory::Chevron, accessoryX, tileRect.y + (tileRect.height - accessoryIconSize) / 2,
                   rtl);
 

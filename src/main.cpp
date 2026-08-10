@@ -62,6 +62,9 @@ FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts
 static unsigned long allowSleepAt = 0;
 static bool bootCoreInitialized = false;
 static bool displayInitFailed = false;
+// A wake press is not application input. Keep setup non-blocking while the
+// user is still holding Power, then discard that release edge in loop().
+static bool bootPowerHeld = false;
 
 // Fonts
 EpdFont notoserif14RegularFont(&notoserif_14_regular);
@@ -290,20 +293,6 @@ void silentRestartToReader() {
   ESP.restart();
 }
 
-void waitForPowerRelease() {
-  gpio.update();
-  const unsigned long startedAt = millis();
-  constexpr unsigned long RELEASE_TIMEOUT_MS = 5000;
-  while (gpio.isPressed(HalGPIO::BTN_POWER) && millis() - startedAt < RELEASE_TIMEOUT_MS) {
-    delay(50);
-    gpio.update();
-  }
-  if (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    LOG_ERR("MAIN", "Power button remained asserted after %lu ms; continuing with input quarantined",
-            RELEASE_TIMEOUT_MS);
-  }
-}
-
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
 
 static void saveSleepFrameBuffer() {
@@ -470,13 +459,6 @@ void setup() {
   RECENT_BOOKS.loadFromFile();
   FAVORITE_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
-  KOREADER_STORE.loadFromFile();
-  OPDS_STORE.loadFromFile();
-  // Load here, not lazily in the Wi-Fi picker: the store persists its whole
-  // in-memory vector, so any path that saves before a load (the web server's
-  // Wi-Fi API in hotspot mode) would rewrite wifi.json from an empty list and
-  // discard every saved network.
-  WIFI_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
@@ -487,11 +469,12 @@ void setup() {
   // can power the device down before the application checks the buttons.
   bool recoveryFirmwareMode = false;
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton || wakeupReason == HalGPIO::WakeupReason::AfterUSBPower) {
-    const unsigned long settleStart = millis();
-    while (millis() - settleStart < 500) {
-      gpio.update();
-      delay(10);
-    }
+    // InputManager debounces over 20 ms. Two samples are sufficient to latch
+    // a deliberately held recovery chord; the old unconditional 500 ms probe
+    // delayed every normal wake even though no chord was being pressed.
+    gpio.update();
+    delay(25);
+    gpio.update();
     if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_POWER)) {
       recoveryFirmwareMode = true;
       LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
@@ -615,6 +598,14 @@ void setup() {
     activityManager.goToReader(path, allowFastInitialReaderRefresh);
   }
 
+  // These stores are not required to choose or paint the first Home/Reader
+  // frame. Loading them after activity routing lets the render task start
+  // immediately while preserving the invariant that every store is loaded
+  // before the first interactive loop can save it.
+  KOREADER_STORE.loadFromFile();
+  OPDS_STORE.loadFromFile();
+  WIFI_STORE.loadFromFile();
+
   if (resume == BootResume::Silent) {
     // Block until the first paint physically completes. refreshDisplay()
     // waits on the panel BUSY pin so when this returns the user can see the
@@ -648,10 +639,9 @@ void setup() {
     enableLoopWDT();
   }
 
-  // Ensure we're not still holding the power button before leaving setup
-  waitForPowerRelease();
   // Boot/recovery probing intentionally samples held keys. None of those edges
   // belongs to the first interactive screen.
+  bootPowerHeld = gpio.isPressed(HalGPIO::BTN_POWER);
   gpio.clearInputEvents();
   allowSleepAt = millis() + 2000;
   bootCoreInitialized = true;
@@ -705,6 +695,18 @@ void loop() {
 #endif
 
   gpio.update();
+  if (bootPowerHeld) {
+    if (gpio.isPressed(HalGPIO::BTN_POWER)) {
+      gpio.clearInputEvents();
+      delay(5);
+      return;
+    }
+    // Suppress the wake-release edge and start the long-press sleep window
+    // from the first genuinely interactive sample.
+    bootPowerHeld = false;
+    gpio.clearInputEvents();
+    allowSleepAt = millis() + 2000;
+  }
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
   BootDiag::tick();
   markOtaValidOnceHealthy();

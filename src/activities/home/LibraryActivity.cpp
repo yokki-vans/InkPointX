@@ -87,7 +87,8 @@ std::string_view displayFormatFromPath(const std::string_view path) {
   return dot == std::string_view::npos || dot + 1 >= path.size() ? std::string_view{} : path.substr(dot + 1);
 }
 
-const RecentBook* findMetadata(const std::vector<RecentBook>& books, const std::string_view path, int* index = nullptr) {
+const RecentBook* findMetadata(const std::vector<RecentBook>& books, const std::string_view path,
+                               int* index = nullptr) {
   for (size_t i = 0; i < books.size(); i++) {
     if (std::string_view(books[i].path) == path) {
       if (index) *index = static_cast<int>(i);
@@ -223,6 +224,23 @@ std::string LibraryActivity::bookSubtitle(const size_t index) {
   return index < bookCount ? makeBookSubtitle(author, books[index].percent) : author;
 }
 
+int LibraryActivity::visibleItemsPerPage() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, bookCount > 0) - contentTop);
+  return std::max(1, GUI.getListPageItems(contentHeight, true));
+}
+
+void LibraryActivity::moveByPage(const bool forward) {
+  if (bookCount == 0) return;
+  const int selected = static_cast<int>(selectedIndex);
+  const int total = static_cast<int>(bookCount);
+  const int pageItems = visibleItemsPerPage();
+  selectedIndex = static_cast<size_t>(forward ? ButtonNavigator::nextPageIndex(selected, total, pageItems)
+                                              : ButtonNavigator::previousPageIndex(selected, total, pageItems));
+  requestUpdate();
+}
+
 void LibraryActivity::refreshRuntimeMetadata() {
   const auto& recents = RECENT_BOOKS.getBooks();
   const auto& favorites = FAVORITE_BOOKS.getBooks();
@@ -249,9 +267,9 @@ bool LibraryActivity::loadIndex() {
   if (!Storage.openFileForRead("LIB", INDEX_PATH, file)) return false;
   LibraryIndexHeader header{};
   if (file.read(&header, sizeof(header)) != static_cast<int>(sizeof(header)) ||
-      memcmp(header.magic, LIBRARY_INDEX_MAGIC, sizeof(header.magic)) != 0 ||
-      header.version != LIBRARY_INDEX_VERSION || header.recordSize != sizeof(LibraryDiskEntry) ||
-      header.bookCount > MAX_LIBRARY_BOOKS || header.poolBytes > MAX_STRING_POOL_BYTES) {
+      memcmp(header.magic, LIBRARY_INDEX_MAGIC, sizeof(header.magic)) != 0 || header.version != LIBRARY_INDEX_VERSION ||
+      header.recordSize != sizeof(LibraryDiskEntry) || header.bookCount > MAX_LIBRARY_BOOKS ||
+      header.poolBytes > MAX_STRING_POOL_BYTES) {
     return false;
   }
   if (header.bookCount == 0) {
@@ -483,8 +501,8 @@ void LibraryActivity::scanAllBooks() {
   const auto& recents = RECENT_BOOKS.getBooks();
   const auto& favorites = FAVORITE_BOOKS.getBooks();
 
-  while (!directories.empty() && scannedDirectories < MAX_SCANNED_DIRECTORIES &&
-         scannedEntries < MAX_SCANNED_ENTRIES && !truncated && !writeFailed) {
+  while (!directories.empty() && scannedDirectories < MAX_SCANNED_DIRECTORIES && scannedEntries < MAX_SCANNED_ENTRIES &&
+         !truncated && !writeFailed) {
     std::string directory = std::move(directories.back());
     directories.pop_back();
     ++scannedDirectories;
@@ -529,8 +547,8 @@ void LibraryActivity::scanAllBooks() {
                                       : favorite && !favorite->author.empty() ? std::string_view(favorite->author)
                                                                               : std::string_view{};
       if (fullPath.size() > UINT16_MAX || title.size() > UINT16_MAX || author.size() > UINT16_MAX ||
-          count >= MAX_LIBRARY_BOOKS || poolBytes + fullPath.size() + title.size() + author.size() + 3 >
-                                                MAX_STRING_POOL_BYTES) {
+          count >= MAX_LIBRARY_BOOKS ||
+          poolBytes + fullPath.size() + title.size() + author.size() + 3 > MAX_STRING_POOL_BYTES) {
         truncated = true;
         break;
       }
@@ -619,7 +637,8 @@ void LibraryActivity::sortBooks(const int direction) {
         break;
       case SortMode::Format:
         if (displayFormatFromPath(poolString(left.pathOffset)) != displayFormatFromPath(poolString(right.pathOffset))) {
-          return displayFormatFromPath(poolString(left.pathOffset)) < displayFormatFromPath(poolString(right.pathOffset));
+          return displayFormatFromPath(poolString(left.pathOffset)) <
+                 displayFormatFromPath(poolString(right.pathOffset));
         }
         break;
       case SortMode::Recent:
@@ -686,6 +705,12 @@ void LibraryActivity::loop() {
     selectedIndex = (selectedIndex + bookCount - 1) % bookCount;
     requestUpdate();
   }
+
+  // A short press remains one row. Holding either side button advances by a
+  // whole visible page every 500 ms, which keeps large catalogues practical
+  // without introducing a separate paging mode.
+  pageNavigator.onNextContinuous([this] { moveByPage(true); });
+  pageNavigator.onPreviousContinuous([this] { moveByPage(false); });
 
   if (mode == Mode::AllBooks && mappedInput.wasPressed(MappedInputManager::Button::Right)) {
     sortBooks(1);

@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "activities/Activity.h"
+#include "util/ButtonNavigator.h"
 #include "util/HoldGestures.h"
 
 class LibraryActivity final : public Activity {
@@ -57,6 +58,7 @@ class LibraryActivity final : public Activity {
   bool longPressFired = false;
   bool loading = false;
   bool pendingTruncatedWarning = false;
+  ButtonNavigator pageNavigator{500, 500};
 
   void loadBooks();
   void scanAllBooks();
@@ -72,6 +74,8 @@ class LibraryActivity final : public Activity {
   std::string_view bookTitle(size_t index) const;
   std::string_view bookAuthor(size_t index) const;
   std::string bookSubtitle(size_t index);
+  int visibleItemsPerPage() const;
+  void moveByPage(bool forward);
   void sortBooks(int direction = 0);
   void toggleSelectedFavorite();
   const char* sortModeLabel() const;

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.9" src="https://img.shields.io/badge/version-2.2.9-000000">
+  <img alt="Version 2.2.10" src="https://img.shields.io/badge/version-2.2.10-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,11 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Faster wake and reader navigation in 2.2.10.** Normal wake no longer pays a fixed half-second recovery-chord delay
+  or waits for the Power button to be released before the first screen can render. The release is quarantined without
+  blocking, nonessential network stores load alongside the first frame, and SD recovery remains available with
+  Up + Power. Holding a library side button now moves by a full visible page, Dictionary can be assigned to long
+  Confirm, and Inter labels are centred by their actual ink bounds against icons and accessories.
 - **Large-library and dictionary stability in 2.2.9.** The Books view now uses a compact, persistent catalogue instead
   of keeping hundreds of heap-allocated strings in memory, opens the cached catalogue immediately, supports up to
   1,200 books, and provides an explicit **Rescan library** action. StarDict lookup uses a bounded sparse index with a

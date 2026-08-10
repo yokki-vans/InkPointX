@@ -38,8 +38,7 @@ void ReaderGesturesActivity::onEnter() {
 }
 
 void ReaderGesturesActivity::loop() {
-  if (!inputGuard_.allowsInput(mappedInput,
-                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+  if (!inputGuard_.allowsInput(mappedInput, {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
@@ -69,6 +68,8 @@ void ReaderGesturesActivity::render(RenderLock&&) {
   rows.push_back({StrId::STR_PAGE, turnPage});
   if (SETTINGS.longPressMenuFunction == CrossPointSettings::LP_MENU_BOOKMARK) {
     rows.push_back({StrId::STR_TOGGLE_BOOKMARK, holdNotation(keys.btn2, ReaderUtils::BOOKMARK_HOLD_MS)});
+  } else if (SETTINGS.longPressMenuFunction == CrossPointSettings::LP_MENU_DICTIONARY) {
+    rows.push_back({StrId::STR_DICTIONARY, holdNotation(keys.btn2, ReaderUtils::GO_HOME_MS)});
   }
   rows.push_back({StrId::STR_HOME, keys.btn1});
   rows.push_back({StrId::STR_OPEN_FROM_FILE, holdNotation(keys.btn1, ReaderUtils::GO_HOME_MS)});
