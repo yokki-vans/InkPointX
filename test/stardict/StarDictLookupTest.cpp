@@ -10,14 +10,14 @@
 #include <vector>
 
 namespace {
-void writeBe32(std::ofstream& out, uint32_t value) {
+void writeBe32(std::ostream& out, uint32_t value) {
   const std::array<unsigned char, 4> bytes{static_cast<unsigned char>(value >> 24),
                                            static_cast<unsigned char>(value >> 16),
                                            static_cast<unsigned char>(value >> 8), static_cast<unsigned char>(value)};
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
-void writeBe64(std::ofstream& out, uint64_t value) {
+void writeBe64(std::ostream& out, uint64_t value) {
   for (int shift = 56; shift >= 0; shift -= 8) out.put(static_cast<char>((value >> shift) & 0xff));
 }
 
@@ -138,4 +138,55 @@ TEST_F(StarDictLookupTest, CloseIsSafeBeforeOpenAfterFailureAndRepeatedly) {
   dictionary.close();
   dictionary.close();
   EXPECT_FALSE(dictionary.isOpen());
+}
+
+TEST_F(StarDictLookupTest, PersistsAndValidatesCompactCheckpointCache) {
+  std::vector<std::pair<std::string, std::string>> entries;
+  entries.reserve(900);
+  for (int i = 0; i < 900; ++i) {
+    char word[24];
+    snprintf(word, sizeof(word), "word-%04d", i);
+    entries.emplace_back(word, "definition-" + std::to_string(i));
+  }
+  createDictionary(entries);
+
+  {
+    StarDictLookup dictionary;
+    ASSERT_TRUE(dictionary.open("/dictionaries/test"));
+    std::string definition;
+    ASSERT_TRUE(dictionary.lookup("word-0899", definition));
+    EXPECT_EQ(definition, "definition-899");
+  }
+
+  const auto cache = root / "dictionaries" / "test" / ".inkpointx-dictionary.idx";
+  ASSERT_TRUE(std::filesystem::exists(cache));
+
+  // A second open exercises the sidecar rather than rebuilding it.
+  StarDictLookup reopened;
+  ASSERT_TRUE(reopened.open("/dictionaries/test"));
+  std::string definition;
+  ASSERT_TRUE(reopened.lookup("word-0001", definition));
+  EXPECT_EQ(definition, "definition-1");
+
+  // Replacing the index with different bytes invalidates the sampled
+  // fingerprint even when a stale sidecar remains beside it.
+  createDictionary({{"alpha", "new definition"}});
+  StarDictLookup replaced;
+  ASSERT_TRUE(replaced.open("/dictionaries/test"));
+  ASSERT_TRUE(replaced.lookup("alpha", definition));
+  EXPECT_EQ(definition, "new definition");
+}
+
+TEST_F(StarDictLookupTest, RejectsDefinitionOutsideDictFile) {
+  createDictionary({{"word", "definition"}});
+  auto idxPath = root / "dictionaries" / "test" / "test.idx";
+  std::fstream idx(idxPath, std::ios::binary | std::ios::in | std::ios::out);
+  idx.seekp(5);  // word + NUL
+  writeBe32(idx, 0x7ffffff0u);
+  idx.close();
+
+  StarDictLookup dictionary;
+  ASSERT_TRUE(dictionary.open("/dictionaries/test"));
+  std::string definition;
+  EXPECT_FALSE(dictionary.lookup("word", definition));
 }

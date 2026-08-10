@@ -4,6 +4,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "util/LaunchInputGuard.h"
 
 class FileInfoActivity final : public Activity {
  public:
@@ -19,4 +20,5 @@ class FileInfoActivity final : public Activity {
   std::string path;
   bool directory;
   uint64_t size;
+  LaunchInputGuard inputGuard_;
 };

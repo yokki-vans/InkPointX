@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.8" src="https://img.shields.io/badge/version-2.2.8-000000">
+  <img alt="Version 2.2.9" src="https://img.shields.io/badge/version-2.2.9-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,12 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Large-library and dictionary stability in 2.2.9.** The Books view now uses a compact, persistent catalogue instead
+  of keeping hundreds of heap-allocated strings in memory, opens the cached catalogue immediately, supports up to
+  1,200 books, and provides an explicit **Rescan library** action. StarDict lookup uses a bounded sparse index with a
+  validated on-card sidecar cache, reports indexing progress, and rejects corrupt offsets without rebooting. Release
+  edges from a parent confirmation screen are quarantined, so Device info and other detail screens no longer close as
+  soon as they open.
 - **Stable Focus Reading and centred modal notifications in 2.2.8.** Focus Reading no longer requests an increasingly
   large contiguous heap block while splitting long EPUB paragraphs, eliminating the `std::bad_alloc` reboot seen with
   some books on the ESP32-C3. Contextual messages such as indexing, loading, lookup, and error states now share one

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "activities/Activity.h"
+#include "util/LaunchInputGuard.h"
 
 class DeviceInfoActivity final : public Activity {
  public:
@@ -10,4 +11,7 @@ class DeviceInfoActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+
+ private:
+  LaunchInputGuard inputGuard_;
 };

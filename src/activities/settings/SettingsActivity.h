@@ -31,6 +31,7 @@ enum class SettingAction {
   DeviceInfo,
   ResetSettings,
   Dictionary,
+  RescanLibrary,
 };
 
 struct SettingInfo {

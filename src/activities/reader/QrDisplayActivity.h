@@ -4,6 +4,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "util/LaunchInputGuard.h"
 
 class QrDisplayActivity final : public Activity {
  public:
@@ -17,4 +18,5 @@ class QrDisplayActivity final : public Activity {
 
  private:
   std::string textPayload;
+  LaunchInputGuard inputGuard_;
 };

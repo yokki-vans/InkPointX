@@ -13,10 +13,15 @@
 
 void BookInfoActivity::onEnter() {
   Activity::onEnter();
+  inputGuard_.reset();
   requestUpdate();
 }
 
 void BookInfoActivity::loop() {
+  if (!inputGuard_.allowsInput(mappedInput,
+                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     finish();

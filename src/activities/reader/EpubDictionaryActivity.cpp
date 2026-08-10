@@ -121,7 +121,9 @@ void EpubDictionaryActivity::onEnter() {
 
 void EpubDictionaryActivity::onExit() {
   dictionary_.close();
-  captureChunks_.clear();
+  for (auto& chunk : captureChunks_) chunk.reset();
+  captureChunkCount_ = 0;
+  captureValid_ = false;
   Activity::onExit();
 }
 
@@ -217,6 +219,8 @@ void EpubDictionaryActivity::performLookup() {
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     if (!dictionaryOpenAttempted_) {
       dictionaryOpenAttempted_ = true;
+      lastDictionaryProgress_ = -1;
+      dictionary_.setProgressCallback(dictionaryProgress, this);
       dictionary_.open(std::string("/dictionaries/") + SETTINGS.dictionaryFolder);
     }
     if (!dictionary_.isOpen())
@@ -233,6 +237,19 @@ void EpubDictionaryActivity::performLookup() {
   buildDefinitionLines();
   showingDefinition_ = true;
   requestUpdate();
+}
+
+void EpubDictionaryActivity::dictionaryProgress(void* context, const uint32_t completedBytes,
+                                                const uint32_t totalBytes) {
+  auto* self = static_cast<EpubDictionaryActivity*>(context);
+  if (!self || totalBytes == 0) return;
+  const int percent = static_cast<int>((static_cast<uint64_t>(completedBytes) * 100u) / totalBytes);
+  if (percent == self->lastDictionaryProgress_) return;
+  self->lastDictionaryProgress_ = percent;
+  char message[64];
+  snprintf(message, sizeof(message), "%s %d%%", tr(STR_INDEXING), percent);
+  GUI.drawPopup(self->renderer, message);
+  self->renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
 void EpubDictionaryActivity::buildDefinitionLines() {
@@ -257,23 +274,26 @@ void EpubDictionaryActivity::buildDefinitionLines() {
 }
 
 void EpubDictionaryActivity::captureBaseFrame() {
-  captureChunks_.clear();
+  for (auto& chunk : captureChunks_) chunk.reset();
+  captureChunkCount_ = 0;
   captureValid_ = false;
   uint8_t* frame = renderer.getFrameBuffer();
   const size_t bytes = renderer.getBufferSize();
   if (!frame || bytes == 0) return;
   const size_t count = (bytes + CAPTURE_CHUNK_BYTES - 1) / CAPTURE_CHUNK_BYTES;
-  captureChunks_.reserve(count);
+  if (count > captureChunks_.size()) return;
   for (size_t i = 0; i < count; ++i) {
     const size_t offset = i * CAPTURE_CHUNK_BYTES;
     const size_t chunkBytes = std::min(CAPTURE_CHUNK_BYTES, bytes - offset);
     auto chunk = makeUniqueNoThrow<uint8_t[]>(chunkBytes);
     if (!chunk) {
-      captureChunks_.clear();
+      for (auto& allocated : captureChunks_) allocated.reset();
+      captureChunkCount_ = 0;
       return;
     }
     memcpy(chunk.get(), frame + offset, chunkBytes);
-    captureChunks_.push_back(std::move(chunk));
+    captureChunks_[i] = std::move(chunk);
+    captureChunkCount_ = i + 1;
   }
   captureBytes_ = bytes;
   captureValid_ = true;
@@ -282,7 +302,7 @@ void EpubDictionaryActivity::captureBaseFrame() {
 bool EpubDictionaryActivity::restoreBaseFrame() {
   uint8_t* frame = renderer.getFrameBuffer();
   if (!captureValid_ || !frame || captureBytes_ != renderer.getBufferSize()) return false;
-  for (size_t i = 0; i < captureChunks_.size(); ++i) {
+  for (size_t i = 0; i < captureChunkCount_; ++i) {
     const size_t offset = i * CAPTURE_CHUNK_BYTES;
     memcpy(frame + offset, captureChunks_[i].get(), std::min(CAPTURE_CHUNK_BYTES, captureBytes_ - offset));
   }

@@ -32,11 +32,16 @@ std::string holdNotation(const char* buttonLabel, const unsigned long ms) {
 
 void ReaderGesturesActivity::onEnter() {
   Activity::onEnter();
+  inputGuard_.reset();
   selectorIndex = 0;
   requestUpdate();
 }
 
 void ReaderGesturesActivity::loop() {
+  if (!inputGuard_.allowsInput(mappedInput,
+                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     ActivityResult result;

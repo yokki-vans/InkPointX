@@ -29,6 +29,7 @@
 #include "SettingsReset.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/home/FileBrowserActivity.h"
+#include "activities/home/LibraryActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
@@ -108,6 +109,9 @@ void SettingsActivity::rebuildSettingsLists() {
   readingSettings.insert(readingSettings.begin(),
                          SettingInfo::Action(StrId::STR_CHOOSE_DICTIONARY, SettingAction::Dictionary));
   readingSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+
+  // Library and files
+  librarySettings.push_back(SettingInfo::Action(StrId::STR_RESCAN_LIBRARY, SettingAction::RescanLibrary));
 
   // Controls
   controlsSettings.insert(controlsSettings.begin(),
@@ -348,6 +352,15 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::Dictionary:
         startActivityForResult(makeUniqueNoThrow<DictionaryPickerActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::RescanLibrary:
+        if (LibraryActivity::invalidateIndex())
+          GUI.drawPopup(renderer, tr(STR_DONE));
+        else
+          GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
+        renderer.displayBuffer();
+        delay(700);
+        requestUpdate();
         break;
       case SettingAction::None:
         // Do nothing

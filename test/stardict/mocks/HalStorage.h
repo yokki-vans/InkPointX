@@ -13,7 +13,10 @@ class HalFile {
   std::filesystem::path path_;
   mutable std::fstream stream_;
 
-  explicit HalFile(const std::filesystem::path& path) : path_(path), stream_(path, std::ios::binary | std::ios::in) {}
+  explicit HalFile(const std::filesystem::path& path, const bool write = false)
+      : path_(path),
+        stream_(path, write ? (std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc)
+                            : (std::ios::binary | std::ios::in)) {}
 
  public:
   HalFile() = default;
@@ -40,6 +43,10 @@ class HalFile {
   int read(void* buffer, size_t size) {
     stream_.read(static_cast<char*>(buffer), static_cast<std::streamsize>(size));
     return static_cast<int>(stream_.gcount());
+  }
+  size_t write(const void* buffer, size_t size) {
+    stream_.write(static_cast<const char*>(buffer), static_cast<std::streamsize>(size));
+    return stream_ ? size : 0;
   }
   explicit operator bool() const { return stream_.is_open(); }
 };
@@ -70,6 +77,25 @@ class HalStorage {
   bool openFileForRead(const char*, const std::string& logical, HalFile& file) {
     file = HalFile(resolve(logical));
     return static_cast<bool>(file);
+  }
+  bool openFileForWrite(const char*, const std::string& logical, HalFile& file) {
+    const auto path = resolve(logical);
+    std::filesystem::create_directories(path.parent_path());
+    file = HalFile(path, true);
+    return static_cast<bool>(file);
+  }
+  bool replaceFileFromTemp(const char* logical, const char* tempLogical) {
+    std::error_code error;
+    const auto destination = resolve(logical ? logical : "");
+    const auto temporary = resolve(tempLogical ? tempLogical : "");
+    std::filesystem::remove(destination, error);
+    error.clear();
+    std::filesystem::rename(temporary, destination, error);
+    return !error;
+  }
+  bool remove(const char* logical) {
+    std::error_code error;
+    return std::filesystem::remove(resolve(logical ? logical : ""), error) && !error;
   }
 };
 

@@ -14,10 +14,15 @@
 
 void DeviceInfoActivity::onEnter() {
   Activity::onEnter();
+  inputGuard_.reset();
   requestUpdate();
 }
 
 void DeviceInfoActivity::loop() {
+  if (!inputGuard_.allowsInput(mappedInput,
+                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     finish();

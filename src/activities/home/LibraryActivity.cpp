@@ -11,8 +11,11 @@
 #include <esp_task_wdt.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <climits>
 #include <cstring>
+#include <string_view>
 
 #include "CrossPointSettings.h"
 #include "FavoriteBooksStore.h"
@@ -23,6 +26,49 @@
 #include "util/BookCacheUtils.h"
 
 namespace {
+constexpr char LIBRARY_INDEX_MAGIC[8] = {'I', 'P', 'X', 'L', 'I', 'B', '0', '1'};
+constexpr uint16_t LIBRARY_INDEX_VERSION = 1;
+
+#pragma pack(push, 1)
+struct LibraryIndexHeader {
+  char magic[8];
+  uint16_t version;
+  uint16_t recordSize;
+  uint32_t bookCount;
+  uint32_t poolBytes;
+  uint32_t checksum;
+  uint8_t truncated;
+  uint8_t reserved[7];
+};
+
+struct LibraryDiskEntry {
+  uint32_t pathOffset;
+  uint32_t titleOffset;
+  uint32_t authorOffset;
+};
+
+struct LibrarySpoolRecord {
+  uint16_t pathBytes;
+  uint16_t titleBytes;
+  uint16_t authorBytes;
+};
+#pragma pack(pop)
+
+uint32_t fnv1aUpdate(uint32_t hash, const void* data, const size_t size) {
+  const auto* bytes = static_cast<const uint8_t*>(data);
+  for (size_t i = 0; i < size; ++i) {
+    hash ^= bytes[i];
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+bool writeAll(HalFile& file, const void* data, const size_t size) { return file.write(data, size) == size; }
+
+bool writeSpoolString(HalFile& file, const std::string_view value) {
+  return value.empty() || writeAll(file, value.data(), value.size());
+}
+
 bool isSupportedBook(const std::string_view filename) {
   return FsHelpers::hasEpubExtension(filename) || FsHelpers::hasFb2Extension(filename) ||
          FsHelpers::hasPdfExtension(filename);
@@ -36,18 +82,14 @@ std::string displayTitleFromPath(const std::string& path) {
   return path.substr(nameStart, nameEnd - nameStart);
 }
 
-std::string displayFormatFromPath(const std::string& path) {
+std::string_view displayFormatFromPath(const std::string_view path) {
   const auto dot = path.find_last_of('.');
-  if (dot == std::string::npos || dot + 1 >= path.size()) return "";
-  std::string format = path.substr(dot + 1);
-  std::transform(format.begin(), format.end(), format.begin(),
-                 [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
-  return format;
+  return dot == std::string_view::npos || dot + 1 >= path.size() ? std::string_view{} : path.substr(dot + 1);
 }
 
-const RecentBook* findMetadata(const std::vector<RecentBook>& books, const std::string& path, int* index = nullptr) {
+const RecentBook* findMetadata(const std::vector<RecentBook>& books, const std::string_view path, int* index = nullptr) {
   for (size_t i = 0; i < books.size(); i++) {
-    if (books[i].path == path) {
+    if (std::string_view(books[i].path) == path) {
       if (index) *index = static_cast<int>(i);
       return &books[i];
     }
@@ -113,6 +155,234 @@ std::string makeBookSubtitle(const std::string& author, const uint8_t percent) {
 }
 }  // namespace
 
+void LibraryActivity::clearCatalog() {
+  books.reset();
+  stringPool.reset();
+  bookCount = 0;
+  stringPoolSize = 0;
+}
+
+std::string_view LibraryActivity::poolString(const uint32_t offset) const {
+  if (!stringPool || offset >= stringPoolSize) return {};
+  const char* start = stringPool.get() + offset;
+  const size_t remaining = stringPoolSize - offset;
+  const void* terminator = memchr(start, '\0', remaining);
+  if (!terminator) return {};
+  return {start, static_cast<size_t>(static_cast<const char*>(terminator) - start)};
+}
+
+std::string_view LibraryActivity::bookPath(const size_t index) const {
+  return index < bookCount ? poolString(books[index].pathOffset) : std::string_view{};
+}
+
+std::string_view LibraryActivity::bookTitle(const size_t index) const {
+  if (index >= bookCount) return {};
+  const BookEntry& book = books[index];
+  const auto& recents = RECENT_BOOKS.getBooks();
+  if (book.recentMetadataIndex >= 0 && static_cast<size_t>(book.recentMetadataIndex) < recents.size() &&
+      !recents[book.recentMetadataIndex].title.empty()) {
+    return recents[book.recentMetadataIndex].title;
+  }
+  const auto& favorites = FAVORITE_BOOKS.getBooks();
+  if (book.favoriteMetadataIndex >= 0 && static_cast<size_t>(book.favoriteMetadataIndex) < favorites.size() &&
+      !favorites[book.favoriteMetadataIndex].title.empty()) {
+    return favorites[book.favoriteMetadataIndex].title;
+  }
+  return poolString(book.titleOffset);
+}
+
+std::string_view LibraryActivity::bookAuthor(const size_t index) const {
+  if (index >= bookCount) return {};
+  const BookEntry& book = books[index];
+  const auto& recents = RECENT_BOOKS.getBooks();
+  if (book.recentMetadataIndex >= 0 && static_cast<size_t>(book.recentMetadataIndex) < recents.size() &&
+      !recents[book.recentMetadataIndex].author.empty()) {
+    return recents[book.recentMetadataIndex].author;
+  }
+  const auto& favorites = FAVORITE_BOOKS.getBooks();
+  if (book.favoriteMetadataIndex >= 0 && static_cast<size_t>(book.favoriteMetadataIndex) < favorites.size() &&
+      !favorites[book.favoriteMetadataIndex].author.empty()) {
+    return favorites[book.favoriteMetadataIndex].author;
+  }
+  return poolString(book.authorOffset);
+}
+
+void LibraryActivity::ensureProgress(const size_t index) {
+  if (index >= bookCount || books[index].progressLoaded) return;
+  BookEntry& book = books[index];
+  const std::string path(bookPath(index));
+  const LibraryProgress progress = loadLibraryProgress(path, book.recentMetadataIndex >= 0);
+  book.progressLoaded = true;
+  book.percent = progress.percent;
+  book.isNew = !progress.opened;
+}
+
+std::string LibraryActivity::bookSubtitle(const size_t index) {
+  ensureProgress(index);
+  const std::string author(bookAuthor(index));
+  return index < bookCount ? makeBookSubtitle(author, books[index].percent) : author;
+}
+
+void LibraryActivity::refreshRuntimeMetadata() {
+  const auto& recents = RECENT_BOOKS.getBooks();
+  const auto& favorites = FAVORITE_BOOKS.getBooks();
+  for (size_t i = 0; i < bookCount; ++i) {
+    BookEntry& book = books[i];
+    int recentIndex = -1;
+    int favoriteIndex = -1;
+    const std::string_view path = bookPath(i);
+    findMetadata(recents, path, &recentIndex);
+    findMetadata(favorites, path, &favoriteIndex);
+    book.recentMetadataIndex = static_cast<int16_t>(recentIndex);
+    book.favoriteMetadataIndex = static_cast<int16_t>(favoriteIndex);
+    book.recentRank = recentIndex < 0 ? 1000 : recentIndex;
+    book.favorite = favoriteIndex >= 0;
+    book.isNew = recentIndex < 0;
+    book.progressLoaded = false;
+    book.percent = 0;
+  }
+}
+
+bool LibraryActivity::loadIndex() {
+  clearCatalog();
+  HalFile file;
+  if (!Storage.openFileForRead("LIB", INDEX_PATH, file)) return false;
+  LibraryIndexHeader header{};
+  if (file.read(&header, sizeof(header)) != static_cast<int>(sizeof(header)) ||
+      memcmp(header.magic, LIBRARY_INDEX_MAGIC, sizeof(header.magic)) != 0 ||
+      header.version != LIBRARY_INDEX_VERSION || header.recordSize != sizeof(LibraryDiskEntry) ||
+      header.bookCount > MAX_LIBRARY_BOOKS || header.poolBytes > MAX_STRING_POOL_BYTES) {
+    return false;
+  }
+  if (header.bookCount == 0) {
+    pendingTruncatedWarning = header.truncated != 0;
+    return true;
+  }
+
+  books = makeUniqueNoThrow<BookEntry[]>(header.bookCount);
+  stringPool = makeUniqueNoThrow<char[]>(header.poolBytes);
+  if (!books || !stringPool) {
+    LOG_ERR("LIB", "OOM loading index: books=%u pool=%u", header.bookCount, header.poolBytes);
+    clearCatalog();
+    return false;
+  }
+
+  uint32_t checksum = 2166136261u;
+  for (size_t i = 0; i < header.bookCount; ++i) {
+    LibraryDiskEntry disk{};
+    if (file.read(&disk, sizeof(disk)) != static_cast<int>(sizeof(disk))) {
+      clearCatalog();
+      return false;
+    }
+    checksum = fnv1aUpdate(checksum, &disk, sizeof(disk));
+    books[i].pathOffset = disk.pathOffset;
+    books[i].titleOffset = disk.titleOffset;
+    books[i].authorOffset = disk.authorOffset;
+  }
+  if (header.poolBytes > 0 && file.read(stringPool.get(), header.poolBytes) != static_cast<int>(header.poolBytes)) {
+    clearCatalog();
+    return false;
+  }
+  checksum = fnv1aUpdate(checksum, stringPool.get(), header.poolBytes);
+  bookCount = header.bookCount;
+  stringPoolSize = header.poolBytes;
+  if (checksum != header.checksum) {
+    LOG_ERR("LIB", "Library index checksum mismatch");
+    clearCatalog();
+    return false;
+  }
+  for (size_t i = 0; i < bookCount; ++i) {
+    if (poolString(books[i].pathOffset).empty() || poolString(books[i].titleOffset).empty() ||
+        books[i].authorOffset >= stringPoolSize) {
+      clearCatalog();
+      return false;
+    }
+  }
+  pendingTruncatedWarning = header.truncated != 0;
+  return true;
+}
+
+bool LibraryActivity::saveIndex(const bool truncated) const {
+  HalFile file;
+  if (!Storage.openFileForWrite("LIB", INDEX_TEMP_PATH, file)) return false;
+  uint32_t checksum = 2166136261u;
+  for (size_t i = 0; i < bookCount; ++i) {
+    const LibraryDiskEntry disk{books[i].pathOffset, books[i].titleOffset, books[i].authorOffset};
+    checksum = fnv1aUpdate(checksum, &disk, sizeof(disk));
+  }
+  checksum = fnv1aUpdate(checksum, stringPool.get(), stringPoolSize);
+  LibraryIndexHeader header{};
+  memcpy(header.magic, LIBRARY_INDEX_MAGIC, sizeof(header.magic));
+  header.version = LIBRARY_INDEX_VERSION;
+  header.recordSize = sizeof(LibraryDiskEntry);
+  header.bookCount = static_cast<uint32_t>(bookCount);
+  header.poolBytes = static_cast<uint32_t>(stringPoolSize);
+  header.checksum = checksum;
+  header.truncated = truncated ? 1 : 0;
+
+  bool ok = writeAll(file, &header, sizeof(header));
+  for (size_t i = 0; ok && i < bookCount; ++i) {
+    const LibraryDiskEntry disk{books[i].pathOffset, books[i].titleOffset, books[i].authorOffset};
+    ok = writeAll(file, &disk, sizeof(disk));
+  }
+  if (ok && stringPoolSize > 0) ok = writeAll(file, stringPool.get(), stringPoolSize);
+  file.close();
+  if (!ok || !Storage.replaceFileFromTemp(INDEX_PATH, INDEX_TEMP_PATH)) {
+    Storage.remove(INDEX_TEMP_PATH);
+    return false;
+  }
+  return true;
+}
+
+bool LibraryActivity::loadScanSpool(const size_t count, const size_t poolBytes) {
+  clearCatalog();
+  if (count == 0) return true;
+  books = makeUniqueNoThrow<BookEntry[]>(count);
+  stringPool = makeUniqueNoThrow<char[]>(poolBytes);
+  if (!books || !stringPool) {
+    LOG_ERR("LIB", "OOM materialising scan: books=%u pool=%u", static_cast<unsigned>(count),
+            static_cast<unsigned>(poolBytes));
+    clearCatalog();
+    return false;
+  }
+  HalFile spool;
+  if (!Storage.openFileForRead("LIB", SCAN_SPOOL_PATH, spool)) {
+    clearCatalog();
+    return false;
+  }
+  size_t cursor = 0;
+  for (size_t i = 0; i < count; ++i) {
+    LibrarySpoolRecord record{};
+    if (spool.read(&record, sizeof(record)) != static_cast<int>(sizeof(record))) {
+      clearCatalog();
+      return false;
+    }
+    const std::array<uint16_t, 3> lengths{record.pathBytes, record.titleBytes, record.authorBytes};
+    uint32_t* offsets[] = {&books[i].pathOffset, &books[i].titleOffset, &books[i].authorOffset};
+    for (size_t field = 0; field < lengths.size(); ++field) {
+      const size_t length = lengths[field];
+      if (cursor + length + 1 > poolBytes ||
+          (length > 0 && spool.read(stringPool.get() + cursor, length) != static_cast<int>(length))) {
+        clearCatalog();
+        return false;
+      }
+      *offsets[field] = static_cast<uint32_t>(cursor);
+      cursor += length;
+      stringPool[cursor++] = '\0';
+    }
+  }
+  bookCount = count;
+  stringPoolSize = cursor;
+  Storage.remove(SCAN_SPOOL_PATH);
+  return cursor == poolBytes;
+}
+
+bool LibraryActivity::invalidateIndex() {
+  Storage.remove(INDEX_TEMP_PATH);
+  Storage.remove(SCAN_SPOOL_PATH);
+  return !Storage.exists(INDEX_PATH) || Storage.remove(INDEX_PATH);
+}
+
 void LibraryActivity::onEnter() {
   Activity::onEnter();
   fileNameBuffer = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
@@ -121,9 +391,19 @@ void LibraryActivity::onEnter() {
     requestUpdate();
     return;
   }
+
+  FAVORITE_BOOKS.pruneMissing();
+  if (mode == Mode::AllBooks && loadIndex()) {
+    refreshRuntimeMetadata();
+    sortBooks();
+    loading = false;
+    selectedIndex = 0;
+    requestUpdate();
+    return;
+  }
+
   loading = true;
   requestUpdateAndWait();
-  FAVORITE_BOOKS.pruneMissing();
   loadBooks();
   loading = false;
   selectedIndex = 0;
@@ -132,50 +412,79 @@ void LibraryActivity::onEnter() {
 
 void LibraryActivity::onExit() {
   Activity::onExit();
-  books.clear();
+  clearCatalog();
   fileNameBuffer.reset();
 }
 
 void LibraryActivity::loadBooks() {
-  books.clear();
-  books.reserve(mode == Mode::Favorites ? FAVORITE_BOOKS.getBooks().size() : 48);
-  if (mode == Mode::Favorites) {
+  clearCatalog();
+  if (mode == Mode::Favorites)
     loadFavorites();
-  } else {
+  else
     scanAllBooks();
-  }
+  refreshRuntimeMetadata();
   sortBooks();
 }
 
 void LibraryActivity::loadFavorites() {
   const auto& favorites = FAVORITE_BOOKS.getBooks();
-  const auto& recents = RECENT_BOOKS.getBooks();
-  for (const RecentBook& favorite : favorites) {
-    int recentRank = 1000;
-    const bool isRecent = findMetadata(recents, favorite.path, &recentRank) != nullptr;
-    const LibraryProgress progress = loadLibraryProgress(favorite.path, isRecent);
-    books.push_back({favorite.path, favorite.title.empty() ? displayTitleFromPath(favorite.path) : favorite.title,
-                     favorite.author, makeBookSubtitle(favorite.author, progress.percent),
-                     displayFormatFromPath(favorite.path), recentRank, true, !progress.opened});
+  const size_t count = std::min(favorites.size(), MAX_LIBRARY_BOOKS);
+  size_t poolBytes = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& favorite = favorites[i];
+    const std::string title = favorite.title.empty() ? displayTitleFromPath(favorite.path) : favorite.title;
+    poolBytes += favorite.path.size() + title.size() + favorite.author.size() + 3;
   }
+  if (poolBytes > MAX_STRING_POOL_BYTES) return;
+  books = makeUniqueNoThrow<BookEntry[]>(count);
+  stringPool = makeUniqueNoThrow<char[]>(poolBytes);
+  if ((count > 0 && !books) || (poolBytes > 0 && !stringPool)) {
+    clearCatalog();
+    return;
+  }
+  size_t cursor = 0;
+  const auto append = [this, &cursor](const std::string_view value) {
+    const uint32_t offset = static_cast<uint32_t>(cursor);
+    if (!value.empty()) memcpy(stringPool.get() + cursor, value.data(), value.size());
+    cursor += value.size();
+    stringPool[cursor++] = '\0';
+    return offset;
+  };
+  for (size_t i = 0; i < count; ++i) {
+    const auto& favorite = favorites[i];
+    const std::string title = favorite.title.empty() ? displayTitleFromPath(favorite.path) : favorite.title;
+    books[i].pathOffset = append(favorite.path);
+    books[i].titleOffset = append(title);
+    books[i].authorOffset = append(favorite.author);
+  }
+  bookCount = count;
+  stringPoolSize = cursor;
 }
 
 void LibraryActivity::scanAllBooks() {
   if (!fileNameBuffer) return;
+  Storage.ensureDirectoryExists("/.crosspoint");
+  Storage.remove(SCAN_SPOOL_PATH);
+  HalFile spool;
+  if (!Storage.openFileForWrite("LIB", SCAN_SPOOL_PATH, spool)) return;
 
   std::vector<std::string> directories;
   directories.reserve(64);
   directories.emplace_back("/");
-  constexpr size_t MAX_SCANNED_DIRECTORIES = 128;
-  constexpr size_t MAX_SCANNED_ENTRIES = 4096;
+  constexpr size_t MAX_SCANNED_DIRECTORIES = 256;
+  constexpr size_t MAX_SCANNED_ENTRIES = 16384;
   size_t scannedDirectories = 0;
   size_t scannedEntries = 0;
+  size_t count = 0;
+  size_t poolBytes = 0;
+  bool truncated = false;
+  bool writeFailed = false;
 
   const auto& recents = RECENT_BOOKS.getBooks();
   const auto& favorites = FAVORITE_BOOKS.getBooks();
 
-  while (!directories.empty() && books.size() < MAX_LIBRARY_BOOKS && scannedDirectories < MAX_SCANNED_DIRECTORIES &&
-         scannedEntries < MAX_SCANNED_ENTRIES) {
+  while (!directories.empty() && scannedDirectories < MAX_SCANNED_DIRECTORIES &&
+         scannedEntries < MAX_SCANNED_ENTRIES && !truncated && !writeFailed) {
     std::string directory = std::move(directories.back());
     directories.pop_back();
     ++scannedDirectories;
@@ -184,11 +493,12 @@ void LibraryActivity::scanAllBooks() {
     if (!root || !root.isDirectory()) continue;
     root.rewindDirectory();
 
-    for (auto entry = root.openNextFile(); entry && books.size() < MAX_LIBRARY_BOOKS; entry = root.openNextFile()) {
-      if (++scannedEntries > MAX_SCANNED_ENTRIES) break;
+    for (auto entry = root.openNextFile(); entry; entry = root.openNextFile()) {
+      if (++scannedEntries > MAX_SCANNED_ENTRIES) {
+        truncated = true;
+        break;
+      }
       if ((scannedEntries & 0x0F) == 0) {
-        // Slow or fragmented SD cards can make a bounded 4096-entry scan take
-        // longer than the main-loop watchdog window.
         esp_task_wdt_reset();
         yield();
       }
@@ -202,25 +512,47 @@ void LibraryActivity::scanAllBooks() {
       fullPath += name;
 
       if (entry.isDirectory()) {
-        if (directories.size() < MAX_SCANNED_DIRECTORIES) directories.push_back(std::move(fullPath));
+        if (directories.size() < MAX_SCANNED_DIRECTORIES)
+          directories.push_back(std::move(fullPath));
+        else
+          truncated = true;
         continue;
       }
       if (!isSupportedBook(name)) continue;
 
-      int recentRank = 1000;
-      const RecentBook* recent = findMetadata(recents, fullPath, &recentRank);
+      const RecentBook* recent = findMetadata(recents, fullPath);
       const RecentBook* favorite = findMetadata(favorites, fullPath);
-      const char* title = recent && !recent->title.empty()       ? recent->title.c_str()
-                          : favorite && !favorite->title.empty() ? favorite->title.c_str()
-                                                                 : nullptr;
-      const char* author = recent && !recent->author.empty()       ? recent->author.c_str()
-                           : favorite && !favorite->author.empty() ? favorite->author.c_str()
-                                                                   : "";
-      const LibraryProgress progress = loadLibraryProgress(fullPath, recent != nullptr);
-      books.push_back({fullPath, title ? std::string(title) : displayTitleFromPath(fullPath), author,
-                       makeBookSubtitle(author, progress.percent), displayFormatFromPath(fullPath), recentRank,
-                       favorite != nullptr, !progress.opened});
+      const std::string title = recent && !recent->title.empty()       ? recent->title
+                                : favorite && !favorite->title.empty() ? favorite->title
+                                                                       : displayTitleFromPath(fullPath);
+      const std::string_view author = recent && !recent->author.empty()       ? std::string_view(recent->author)
+                                      : favorite && !favorite->author.empty() ? std::string_view(favorite->author)
+                                                                              : std::string_view{};
+      if (fullPath.size() > UINT16_MAX || title.size() > UINT16_MAX || author.size() > UINT16_MAX ||
+          count >= MAX_LIBRARY_BOOKS || poolBytes + fullPath.size() + title.size() + author.size() + 3 >
+                                                MAX_STRING_POOL_BYTES) {
+        truncated = true;
+        break;
+      }
+      const LibrarySpoolRecord record{static_cast<uint16_t>(fullPath.size()), static_cast<uint16_t>(title.size()),
+                                      static_cast<uint16_t>(author.size())};
+      writeFailed = !writeAll(spool, &record, sizeof(record)) || !writeSpoolString(spool, fullPath) ||
+                    !writeSpoolString(spool, title) || !writeSpoolString(spool, author);
+      if (writeFailed) break;
+      poolBytes += fullPath.size() + title.size() + author.size() + 3;
+      ++count;
     }
+  }
+  if (!directories.empty()) truncated = true;
+  spool.close();
+  if (writeFailed || !loadScanSpool(count, poolBytes)) {
+    Storage.remove(SCAN_SPOOL_PATH);
+    clearCatalog();
+    return;
+  }
+  pendingTruncatedWarning = truncated;
+  if (!saveIndex(truncated)) {
+    LOG_ERR("LIB", "Could not persist library index");
   }
 }
 
@@ -248,15 +580,47 @@ void LibraryActivity::sortBooks(const int direction) {
     sortMode = static_cast<SortMode>(value);
   }
 
-  const auto compareText = [](const std::string& left, const std::string& right) { return left < right; };
-  std::stable_sort(books.begin(), books.end(), [&](const BookEntry& left, const BookEntry& right) {
+  if (bookCount < 2) {
+    selectedIndex = 0;
+    return;
+  }
+
+  const auto titleOf = [this](const BookEntry& entry) -> std::string_view {
+    const auto& recents = RECENT_BOOKS.getBooks();
+    if (entry.recentMetadataIndex >= 0 && static_cast<size_t>(entry.recentMetadataIndex) < recents.size() &&
+        !recents[entry.recentMetadataIndex].title.empty()) {
+      return recents[entry.recentMetadataIndex].title;
+    }
+    const auto& favorites = FAVORITE_BOOKS.getBooks();
+    if (entry.favoriteMetadataIndex >= 0 && static_cast<size_t>(entry.favoriteMetadataIndex) < favorites.size() &&
+        !favorites[entry.favoriteMetadataIndex].title.empty()) {
+      return favorites[entry.favoriteMetadataIndex].title;
+    }
+    return poolString(entry.titleOffset);
+  };
+  const auto authorOf = [this](const BookEntry& entry) -> std::string_view {
+    const auto& recents = RECENT_BOOKS.getBooks();
+    if (entry.recentMetadataIndex >= 0 && static_cast<size_t>(entry.recentMetadataIndex) < recents.size() &&
+        !recents[entry.recentMetadataIndex].author.empty()) {
+      return recents[entry.recentMetadataIndex].author;
+    }
+    const auto& favorites = FAVORITE_BOOKS.getBooks();
+    if (entry.favoriteMetadataIndex >= 0 && static_cast<size_t>(entry.favoriteMetadataIndex) < favorites.size() &&
+        !favorites[entry.favoriteMetadataIndex].author.empty()) {
+      return favorites[entry.favoriteMetadataIndex].author;
+    }
+    return poolString(entry.authorOffset);
+  };
+  std::sort(books.get(), books.get() + bookCount, [&](const BookEntry& left, const BookEntry& right) {
     switch (sortMode) {
       case SortMode::Author:
-        if (left.author.empty() != right.author.empty()) return !left.author.empty();
-        if (left.author != right.author) return compareText(left.author, right.author);
+        if (authorOf(left).empty() != authorOf(right).empty()) return !authorOf(left).empty();
+        if (authorOf(left) != authorOf(right)) return authorOf(left) < authorOf(right);
         break;
       case SortMode::Format:
-        if (left.format != right.format) return compareText(left.format, right.format);
+        if (displayFormatFromPath(poolString(left.pathOffset)) != displayFormatFromPath(poolString(right.pathOffset))) {
+          return displayFormatFromPath(poolString(left.pathOffset)) < displayFormatFromPath(poolString(right.pathOffset));
+        }
         break;
       case SortMode::Recent:
         if (left.recentRank != right.recentRank) return left.recentRank < right.recentRank;
@@ -265,25 +629,30 @@ void LibraryActivity::sortBooks(const int direction) {
       case SortMode::Count:
         break;
     }
-    return compareText(left.title, right.title);
+    return titleOf(left) < titleOf(right);
   });
-  selectedIndex = std::min(selectedIndex, books.empty() ? size_t{0} : books.size() - 1);
+  selectedIndex = std::min(selectedIndex, bookCount == 0 ? size_t{0} : bookCount - 1);
 }
 
 void LibraryActivity::toggleSelectedFavorite() {
-  if (selectedIndex >= books.size()) return;
+  if (selectedIndex >= bookCount) return;
   BookEntry& book = books[selectedIndex];
-  if (!FAVORITE_BOOKS.toggle(book.path, book.title, book.author)) {
+  const std::string path(bookPath(selectedIndex));
+  const std::string title(bookTitle(selectedIndex));
+  const std::string author(bookAuthor(selectedIndex));
+  if (!FAVORITE_BOOKS.toggle(path, title, author)) {
     GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
     renderer.displayBuffer();
     return;
   }
 
   if (mode == Mode::Favorites) {
-    books.erase(books.begin() + selectedIndex);
-    selectedIndex = std::min(selectedIndex, books.empty() ? size_t{0} : books.size() - 1);
+    for (size_t i = selectedIndex + 1; i < bookCount; ++i) books[i - 1] = books[i];
+    --bookCount;
+    selectedIndex = std::min(selectedIndex, bookCount == 0 ? size_t{0} : bookCount - 1);
   } else {
     book.favorite = !book.favorite;
+    refreshRuntimeMetadata();
   }
   requestUpdate(true);
 }
@@ -294,7 +663,7 @@ void LibraryActivity::loop() {
     return;
   }
 
-  if (!books.empty() && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+  if (bookCount > 0 && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= FAVORITE_HOLD_MS) {
     longPressFired = true;
     toggleSelectedFavorite();
@@ -302,7 +671,7 @@ void LibraryActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (selectedIndex < books.size()) onSelectBook(books[selectedIndex].path);
+    if (selectedIndex < bookCount) onSelectBook(std::string(bookPath(selectedIndex)));
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -310,11 +679,11 @@ void LibraryActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Down) && !books.empty()) {
-    selectedIndex = (selectedIndex + 1) % books.size();
+  if (mappedInput.wasPressed(MappedInputManager::Button::Down) && bookCount > 0) {
+    selectedIndex = (selectedIndex + 1) % bookCount;
     requestUpdate();
-  } else if (mappedInput.wasPressed(MappedInputManager::Button::Up) && !books.empty()) {
-    selectedIndex = (selectedIndex + books.size() - 1) % books.size();
+  } else if (mappedInput.wasPressed(MappedInputManager::Button::Up) && bookCount > 0) {
+    selectedIndex = (selectedIndex + bookCount - 1) % bookCount;
     requestUpdate();
   }
 
@@ -342,18 +711,21 @@ void LibraryActivity::render(RenderLock&&) {
                  sortValue.empty() ? nullptr : sortValue.c_str());
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, !books.empty()) - contentTop);
-  if (books.empty()) {
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, bookCount > 0) - contentTop);
+  if (bookCount == 0) {
     GUI.drawEmptyState(
         renderer, Rect{0, contentTop, pageWidth, contentHeight},
         loading ? tr(STR_SCANNING) : (mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND)), nullptr,
         /*script=*/true);
   } else {
     GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(books.size()),
-        static_cast<int>(selectedIndex), [this](int index) { return books[index].title; },
-        [this](int index) { return books[index].subtitle; },
-        [this](int index) { return books[index].isNew ? UIIcon::BookNew : UITheme::getFileIcon(books[index].path); },
+        renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(bookCount),
+        static_cast<int>(selectedIndex), [this](int index) { return std::string(bookTitle(index)); },
+        [this](int index) { return bookSubtitle(index); },
+        [this](int index) {
+          ensureProgress(index);
+          return books[index].isNew ? UIIcon::BookNew : UITheme::getFileIcon(std::string(bookPath(index)));
+        },
         // No format column. It cost roughly 70 px of every row to repeat what the
         // leading icon already says -- this is a book -- while the title, which is
         // how anyone actually picks what to read, was truncated to make room. The
@@ -365,10 +737,15 @@ void LibraryActivity::render(RenderLock&&) {
         // nothing was drawn at all and the two padding spaces left favourited rows
         // with a ragged right edge.
         [this](int index) { return books[index].favorite ? UIAccessory::Favorite : UIAccessory::None; });
-    GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), static_cast<int>(books.size()));
+    GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), static_cast<int>(bookCount));
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_HOME), books.empty() ? "" : tr(STR_OPEN),
+  if (pendingTruncatedWarning) {
+    GUI.drawPopup(renderer, tr(STR_LIBRARY_PARTIAL));
+    pendingTruncatedWarning = false;
+  }
+
+  const auto labels = mappedInput.mapLabels(tr(STR_HOME), bookCount == 0 ? "" : tr(STR_OPEN),
                                             mode == Mode::AllBooks ? "<" : "", mode == Mode::AllBooks ? ">" : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

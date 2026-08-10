@@ -3,6 +3,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "util/LaunchInputGuard.h"
 
 class BookInfoActivity final : public Activity {
  public:
@@ -29,4 +30,5 @@ class BookInfoActivity final : public Activity {
   int currentPage;
   int totalPages;
   int progressPercent;
+  LaunchInputGuard inputGuard_;
 };

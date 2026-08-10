@@ -4,6 +4,7 @@
 #include <Epub/PageWordIndex.h>
 
 #include <memory>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@ class EpubDictionaryActivity final : public Activity {
   bool restoreBaseFrame();
   void drawHighlight() const;
   void drawDefinitionPanel();
+  static void dictionaryProgress(void* context, uint32_t completedBytes, uint32_t totalBytes);
 
   std::unique_ptr<Page> page_;
   int fontId_;
@@ -48,7 +50,10 @@ class EpubDictionaryActivity final : public Activity {
   size_t scrollLine_ = 0;
 
   static constexpr size_t CAPTURE_CHUNK_BYTES = 8000;
-  std::vector<std::unique_ptr<uint8_t[]>> captureChunks_;
+  static constexpr size_t MAX_CAPTURE_CHUNKS = 8;
+  std::array<std::unique_ptr<uint8_t[]>, MAX_CAPTURE_CHUNKS> captureChunks_{};
+  size_t captureChunkCount_ = 0;
   size_t captureBytes_ = 0;
   bool captureValid_ = false;
+  int lastDictionaryProgress_ = -1;
 };

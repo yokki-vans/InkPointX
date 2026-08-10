@@ -2,6 +2,7 @@
 
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
+#include "util/LaunchInputGuard.h"
 
 /**
  * Reference sheet for the reader's button gestures.
@@ -27,4 +28,5 @@ class ReaderGesturesActivity final : public Activity {
  private:
   ButtonNavigator buttonNavigator{};
   int selectorIndex = 0;
+  LaunchInputGuard inputGuard_;
 };

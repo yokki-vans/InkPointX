@@ -27,10 +27,15 @@ std::string formatFileSize(const size_t bytes) {
 
 void FileInfoActivity::onEnter() {
   Activity::onEnter();
+  inputGuard_.reset();
   requestUpdate();
 }
 
 void FileInfoActivity::loop() {
+  if (!inputGuard_.allowsInput(mappedInput,
+                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     finish();

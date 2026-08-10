@@ -10,12 +10,17 @@
 
 void QrDisplayActivity::onEnter() {
   Activity::onEnter();
+  inputGuard_.reset();
   requestUpdate();
 }
 
 void QrDisplayActivity::onExit() { Activity::onExit(); }
 
 void QrDisplayActivity::loop() {
+  if (!inputGuard_.allowsInput(mappedInput,
+                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     finish();
