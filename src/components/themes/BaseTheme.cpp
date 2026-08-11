@@ -17,6 +17,7 @@
 
 #include "I18n.h"
 #include "RecentBooksStore.h"
+#include "components/LayoutGeometry.h"
 #include "components/UITheme.h"
 #include "components/icons/bookmark.h"
 #include "fontIds.h"
@@ -513,8 +514,8 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   if (title) {
     const int padding = batteryGroupWidth + BaseMetrics::values.contentSidePadding;
     auto truncatedTitle =
-        renderer.truncatedText(HEADER_FONT_ID, title, std::max(0, rect.width - padding * 2), EpdFontFamily::REGULAR);
-    renderer.drawCenteredText(HEADER_FONT_ID, rect.y + 5, truncatedTitle.c_str());
+        renderer.truncatedText(SCRIPT_FONT_ID, title, std::max(0, rect.width - padding * 2), EpdFontFamily::REGULAR);
+    renderer.drawCenteredText(SCRIPT_FONT_ID, rect.y + 5, truncatedTitle.c_str());
   }
 
   if (subtitle) {
@@ -663,16 +664,16 @@ void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, 
   if (detail && detail[0] != '\0') {
     detailLines = renderer.wrappedText(UI_10_FONT_ID, detail, maxWidth, 2);
   }
-  const int blockHeight = static_cast<int>(messageLines.size()) * messageLineHeight +
+  const int detailGap = detailLines.empty() ? 0 : UITheme::getInstance().getMetrics().verticalSpacing;
+  const int blockHeight = static_cast<int>(messageLines.size()) * messageLineHeight + detailGap +
                           static_cast<int>(detailLines.size()) * detailLineHeight;
-  // Sit slightly above the middle: a block centred exactly reads as low on a tall
-  // portrait panel with a header above it.
-  int lineY = content.y + std::max(0, (content.height - blockHeight) * 2 / 5);
+  int lineY = LayoutGeometry::centeredBlockTop(content.y, content.height, blockHeight);
   for (const auto& line : messageLines) {
     const int lineWidth = renderer.getTextWidth(messageFontId, line.c_str());
     renderer.drawText(messageFontId, content.x + (content.width - lineWidth) / 2, lineY, line.c_str());
     lineY += messageLineHeight;
   }
+  lineY += detailGap;
   for (const auto& line : detailLines) {
     const int lineWidth = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
     renderer.drawText(UI_10_FONT_ID, content.x + (content.width - lineWidth) / 2, lineY, line.c_str());

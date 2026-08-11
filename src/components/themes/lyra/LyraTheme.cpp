@@ -213,7 +213,7 @@ void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     // otherwise truncated the value to nothing but its own label, which is the one
     // part the user already knows.
     const int available = std::max(0, contentRight - contentLeft);
-    const int titleNeeds = title ? renderer.getTextWidth(HEADER_FONT_ID, title, EpdFontFamily::BOLD) : 0;
+    const int titleNeeds = title ? renderer.getTextWidth(SCRIPT_FONT_ID, title) : 0;
     const int secondaryBudget = std::max(available / 2, available - titleNeeds - hPaddingInSelection);
     const auto secondary = renderer.truncatedText(SMALL_FONT_ID, subtitle, std::min(available, secondaryBudget));
     secondaryWidth = renderer.getTextWidth(SMALL_FONT_ID, secondary.c_str());
@@ -221,12 +221,13 @@ void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     renderer.drawText(SMALL_FONT_ID, secondaryX, rect.y + titleTop + 5, secondary.c_str());
   }
   if (title) {
-    if (auto* cache = renderer.getFontCacheManager()) cache->warmGlyphCache(HEADER_FONT_ID, title);
+    if (auto* cache = renderer.getFontCacheManager()) cache->warmGlyphCache(SCRIPT_FONT_ID, title);
     const int maxWidth = std::max(0, contentRight - contentLeft - secondaryWidth - hPaddingInSelection);
-    const auto heading = renderer.truncatedText(HEADER_FONT_ID, title, maxWidth);
-    const int headingWidth = renderer.getTextWidth(HEADER_FONT_ID, heading.c_str());
+    const auto heading = renderer.truncatedText(SCRIPT_FONT_ID, title, maxWidth);
+    const int headingWidth = renderer.getTextWidth(SCRIPT_FONT_ID, heading.c_str());
     const int headingX = rtl ? contentRight - headingWidth : contentLeft;
-    renderer.drawText(HEADER_FONT_ID, headingX, rect.y + titleTop, heading.c_str(), true, EpdFontFamily::BOLD);
+    const int headingY = centeredInkTextY(renderer, SCRIPT_FONT_ID, heading.c_str(), rect.y + (rect.height - 2) / 2);
+    renderer.drawText(SCRIPT_FONT_ID, headingX, headingY, heading.c_str());
   }
   drawHairline(renderer, contentLeft, rect.x + rect.width - metrics.contentSidePadding, rect.y + rect.height - 2);
 }

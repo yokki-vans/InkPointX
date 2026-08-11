@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.13" src="https://img.shields.io/badge/version-2.2.13-000000">
+  <img alt="Version 2.2.14" src="https://img.shields.io/badge/version-2.2.14-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,11 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Precisely centred states and accent menu headers in 2.2.14.** Empty and informational messages now centre in the
+  usable area between the header and hardware-button legend on both X3 and X4; in particular, the OTA no-update and
+  completion screens no longer centre a second time inside only the lower half of the page. Every shared menu header
+  now uses the configured accent face, including downloaded SD-card accent fonts, with Korean and right-to-left
+  fallbacks preserved.
 - **Centred dictionary entry in 2.2.13.** Opening Dictionary now places the selection on the lookupable word nearest
   the visual centre of the page text instead of always starting at the first word. The geometry-aware choice remains
   predictable on short pages, uneven lines, right-to-left text, punctuation-heavy content, and pages containing blank

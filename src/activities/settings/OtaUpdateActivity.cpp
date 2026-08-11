@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "components/LayoutGeometry.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
@@ -160,7 +161,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto top = (pageHeight - height) / 2;
+  const auto contentSpan = LayoutGeometry::menuContentSpan(pageHeight, metrics.topPadding, metrics.headerHeight,
+                                                           metrics.verticalSpacing, metrics.buttonHintsHeight);
+  const Rect messageArea{0, contentSpan.y, pageWidth, contentSpan.height};
+  const auto top = LayoutGeometry::centeredBlockTop(contentSpan.y, contentSpan.height, height);
 
   float updaterProgress = 0;
   size_t updateProcessed = 0;
@@ -286,9 +290,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
     y += height + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF), true, EpdFontFamily::BOLD);
   } else if (state == NO_UPDATE) {
-    GUI.drawEmptyState(renderer,
-                       Rect{0, top, pageWidth, pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
-                       tr(STR_NO_UPDATE), nullptr, /*script=*/true);
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_UPDATE), nullptr, /*script=*/true);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
@@ -300,9 +302,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
-    GUI.drawEmptyState(renderer,
-                       Rect{0, top, pageWidth, pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
-                       tr(STR_UPDATE_COMPLETE), tr(STR_POWER_ON_HINT), /*script=*/true);
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_UPDATE_COMPLETE), tr(STR_POWER_ON_HINT), /*script=*/true);
   }
 
   renderer.displayBuffer();
