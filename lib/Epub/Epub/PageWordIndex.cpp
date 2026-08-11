@@ -13,7 +13,7 @@ void buildPageWordIndex(const Page& page, const GfxRenderer& renderer, const int
     if (!element || element->getTag() != TAG_PageLine) continue;
     const auto* line = static_cast<const PageLine*>(element.get());
     if (!line->getBlock()) continue;
-    if (lineStartsOut) lineStartsOut->push_back(out.size());
+    const size_t lineStart = out.size();
     const int baseX = line->xPos + marginLeft;
     const int baseY = line->yPos + marginTop;
     line->getBlock()->forEachWord([&](const size_t wordIndex, const std::string& text, const int16_t relativeX,
@@ -30,8 +30,9 @@ void buildPageWordIndex(const Page& page, const GfxRenderer& renderer, const int
       hit.text = text;
       out.push_back(std::move(hit));
     });
-  }
-  if (lineStartsOut) {
-    lineStartsOut->erase(std::remove(lineStartsOut->begin(), lineStartsOut->end(), out.size()), lineStartsOut->end());
+    // Blank PageLine elements must not create duplicate boundaries. Duplicate
+    // starts form zero-length lines, which can make vertical dictionary
+    // navigation select an index that does not belong to the target line.
+    if (lineStartsOut && out.size() > lineStart) lineStartsOut->push_back(lineStart);
   }
 }

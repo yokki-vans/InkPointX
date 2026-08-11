@@ -13,6 +13,7 @@
 #include <iterator>
 
 #include "CrossPointSettings.h"
+#include "DictionaryWordNavigation.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -115,7 +116,11 @@ EpubDictionaryActivity::EpubDictionaryActivity(GfxRenderer& renderer, MappedInpu
 
 void EpubDictionaryActivity::onEnter() {
   Activity::onEnter();
-  if (page_) buildPageWordIndex(*page_, renderer, fontId_, marginLeft_, marginTop_, words_, &lineStarts_);
+  if (page_) {
+    buildPageWordIndex(*page_, renderer, fontId_, marginLeft_, marginTop_, words_, &lineStarts_);
+    focus_ = DictionaryWordNavigation::findCenteredFocus(
+        words_, lineStarts_, [](const PageWordHit& word) { return !cleanLookupWord(word.text).empty(); });
+  }
   requestUpdate();
 }
 
