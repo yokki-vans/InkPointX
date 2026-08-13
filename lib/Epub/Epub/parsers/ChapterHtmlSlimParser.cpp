@@ -17,6 +17,7 @@
 #include "Epub/converters/ImageDecoderFactory.h"
 #include "Epub/converters/ImageToFramebufferDecoder.h"
 #include "Epub/htmlEntities.h"
+#include "EpubImageReference.h"
 
 // Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
@@ -41,7 +42,6 @@ constexpr const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
 constexpr const char* BOLD_TAGS[] = {"b", "strong"};
 constexpr const char* ITALIC_TAGS[] = {"i", "em"};
 constexpr const char* UNDERLINE_TAGS[] = {"u", "ins"};
-constexpr const char* IMAGE_TAGS[] = {"img"};
 constexpr const char* SKIP_TAGS[] = {"head"};
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
@@ -452,14 +452,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
-  if (matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS))) {
-    std::string src;
+  if (EpubImageReference::isImageElement(name)) {
+    const std::string src = EpubImageReference::source(atts);
     std::string alt;
     if (atts != nullptr) {
       for (int i = 0; atts[i]; i += 2) {
-        if (strcmp(atts[i], "src") == 0) {
-          src = atts[i + 1];
-        } else if (strcmp(atts[i], "alt") == 0) {
+        if (strcmp(atts[i], "alt") == 0) {
           alt = atts[i + 1];
         }
       }
@@ -1187,12 +1185,12 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   // Flush buffer with current style BEFORE any style changes
   if (self->partWordBufferIndex > 0) {
     // Flush if style will change OR if we're closing a block/structural element
-    const bool isInlineTag = !headerOrBlockTag && !tableStructuralTag &&
-                             !matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)) && self->depth != 1;
+    const bool isInlineTag =
+        !headerOrBlockTag && !tableStructuralTag && !EpubImageReference::isImageElement(name) && self->depth != 1;
     const bool shouldFlush = styleWillChange || headerOrBlockTag || matches(name, BOLD_TAGS, std::size(BOLD_TAGS)) ||
                              matches(name, ITALIC_TAGS, std::size(ITALIC_TAGS)) ||
                              matches(name, UNDERLINE_TAGS, std::size(UNDERLINE_TAGS)) || tableStructuralTag ||
-                             matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)) || self->depth == 1;
+                             EpubImageReference::isImageElement(name) || self->depth == 1;
 
     if (shouldFlush) {
       self->flushPartWordBuffer();

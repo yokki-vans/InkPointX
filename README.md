@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.14" src="https://img.shields.io/badge/version-2.2.14-000000">
+  <img alt="Version 2.2.15" src="https://img.shields.io/badge/version-2.2.15-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,9 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Calibre SVG cover pages in 2.2.15.** EPUB chapters now recognise both XHTML `<img src>` and SVG `<image>`
+  references using `href` or `xlink:href`. Calibre-generated title pages therefore render their embedded JPG/PNG
+  cover instead of opening as a blank first page, while ordinary EPUB images retain their existing behaviour.
 - **Precisely centred states and accent menu headers in 2.2.14.** Empty and informational messages now centre in the
   usable area between the header and hardware-button legend on both X3 and X4; in particular, the OTA no-update and
   completion screens no longer centre a second time inside only the lower half of the page. Every shared menu header
