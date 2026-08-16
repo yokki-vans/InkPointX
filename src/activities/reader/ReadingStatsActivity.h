@@ -10,7 +10,7 @@
 #include "reading_goal/ReadingGoalSystem.h"
 
 class ReadingStatsActivity final : public Activity {
-  enum class Page : uint8_t { Menu, Overview, Days, Weeks, Books, Habits, Goal, Achievements };
+  enum class Page : uint8_t { Menu, Overview, Days, Weeks, Books, Habits, Goal, Achievements, AchievementDetail };
 
   struct BookRow {
     std::string title;
@@ -40,6 +40,7 @@ class ReadingStatsActivity final : public Activity {
   void renderHabits();
   void renderGoal();
   void renderAchievements();
+  void renderAchievementDetail();
 
  public:
   ReadingStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

@@ -269,14 +269,7 @@ void ActivityManager::showPendingAchievement() {
   uint16_t count = 0;
   if (!ACHIEVEMENTS.takePendingUnlocks(first, count)) return;
 
-  std::string message = tr(STR_ACHIEVEMENT_UNLOCKED);
-  message += "\n";
-  message += ACHIEVEMENTS.name(first);
-  if (count > 1) {
-    message += "\n+";
-    message += std::to_string(count - 1);
-  }
-  pushActivity(makeUniqueNoThrow<AchievementUnlockActivity>(renderer, mappedInput, std::move(message)));
+  pushActivity(makeUniqueNoThrow<AchievementUnlockActivity>(renderer, mappedInput, first, count));
 }
 
 void ActivityManager::showPendingReadingGoal() {

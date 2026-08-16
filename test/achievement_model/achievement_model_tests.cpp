@@ -61,3 +61,18 @@ TEST(AchievementModel, DailyGoalTrackIncludesOneYearMilestone) {
   EXPECT_EQ(achievementMetricValue(AchievementMetric::DailyGoalsCompleted, snapshot), 365u);
   EXPECT_TRUE(achievementBitIsSet(bits, static_cast<AchievementId>(achievementCount() - 1)));
 }
+
+TEST(AchievementModel, StampsOnlyNewUnlocksAndPreservesFirstEarnedDate) {
+  AchievementUnlockDays days = makeUnknownAchievementUnlockDays();
+  AchievementBits newlyUnlocked{};
+  setAchievementBit(newlyUnlocked, AchievementId::FirstPage);
+  setAchievementBit(newlyUnlocked, AchievementId::QuietHour);
+
+  stampAchievementUnlockDays(days, newlyUnlocked, 9000);
+  EXPECT_EQ(days[static_cast<size_t>(AchievementId::FirstPage)], 9000);
+  EXPECT_EQ(days[static_cast<size_t>(AchievementId::QuietHour)], 9000);
+  EXPECT_EQ(days[static_cast<size_t>(AchievementId::PageTurner)], ACHIEVEMENT_DAY_UNKNOWN);
+
+  stampAchievementUnlockDays(days, newlyUnlocked, 9001);
+  EXPECT_EQ(days[static_cast<size_t>(AchievementId::FirstPage)], 9000);
+}

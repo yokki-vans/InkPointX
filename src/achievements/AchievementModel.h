@@ -85,6 +85,18 @@ constexpr size_t achievementCount() { return static_cast<size_t>(AchievementId::
 constexpr size_t ACHIEVEMENT_BIT_BYTES = (achievementCount() + 7) / 8;
 using AchievementBits = std::array<uint8_t, ACHIEVEMENT_BIT_BYTES>;
 
+// Calendar day since 2000-01-01.  The whole supported RTC range (2000-2099)
+// fits in 16 bits; 0xffff is reserved for achievements earned before date
+// tracking existed or while the device clock was unavailable.
+constexpr uint16_t ACHIEVEMENT_DAY_UNKNOWN = 0xffff;
+using AchievementUnlockDays = std::array<uint16_t, achievementCount()>;
+
+constexpr AchievementUnlockDays makeUnknownAchievementUnlockDays() {
+  AchievementUnlockDays days{};
+  for (auto& day : days) day = ACHIEVEMENT_DAY_UNKNOWN;
+  return days;
+}
+
 template <size_t N, size_t E>
 constexpr void appendAchievementTrack(std::array<AchievementDefinition, achievementCount()>& definitions, size_t& index,
                                       const AchievementMetric metric, const std::array<uint32_t, N>& targets,
@@ -171,6 +183,16 @@ constexpr bool achievementBitIsSet(const AchievementBits& bits, const Achievemen
 inline void setAchievementBit(AchievementBits& bits, const AchievementId id) {
   const size_t index = static_cast<size_t>(id);
   if (index < achievementCount()) bits[index / 8] |= static_cast<uint8_t>(1u << (index % 8));
+}
+
+inline void stampAchievementUnlockDays(AchievementUnlockDays& days, const AchievementBits& newlyUnlocked,
+                                       const uint16_t dayIndex) {
+  if (dayIndex == ACHIEVEMENT_DAY_UNKNOWN) return;
+  for (size_t i = 0; i < achievementCount(); ++i) {
+    if (achievementBitIsSet(newlyUnlocked, static_cast<AchievementId>(i)) && days[i] == ACHIEVEMENT_DAY_UNKNOWN) {
+      days[i] = dayIndex;
+    }
+  }
 }
 
 inline uint16_t achievementPopcount(const AchievementBits& bits) {

@@ -15,6 +15,7 @@
 #include "ReadingStatsSummary.h"
 #include "RecentBooksStore.h"
 #include "achievements/AchievementSystem.h"
+#include "achievements/AchievementVisuals.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -30,39 +31,6 @@ constexpr std::array<StrId, 7> DAY_LABELS = {StrId::STR_STATS_MON, StrId::STR_ST
                                              StrId::STR_STATS_SUN};
 constexpr std::array<StrId, 4> TIME_LABELS = {StrId::STR_STATS_MORNING, StrId::STR_STATS_AFTERNOON,
                                               StrId::STR_STATS_EVENING, StrId::STR_STATS_NIGHT};
-UIIcon achievementIcon(const int index) {
-  if (index < 0 || index >= static_cast<int>(achievementCount())) return UIIcon::Favorite;
-  switch (ACHIEVEMENT_DEFINITIONS[index].metric) {
-    case AchievementMetric::Pages:
-      return UIIcon::ReaderPage;
-    case AchievementMetric::ReadingSeconds:
-    case AchievementMetric::NightSeconds:
-      return UIIcon::Clock;
-    case AchievementMetric::Sessions:
-      return UIIcon::Recent;
-    case AchievementMetric::CompletedBooks:
-      return UIIcon::Book;
-    case AchievementMetric::LongestStreak:
-    case AchievementMetric::DailyGoalsCompleted:
-      return UIIcon::Favorite;
-    case AchievementMetric::DictionaryLookups:
-      return UIIcon::ReaderDictionary;
-    case AchievementMetric::BookmarksAdded:
-      return UIIcon::Bookmark;
-    case AchievementMetric::FormatsOpened:
-      return UIIcon::Files;
-    case AchievementMetric::WifiConnections:
-      return UIIcon::Wifi;
-    case AchievementMetric::FontsDownloaded:
-      return UIIcon::Interface;
-    case AchievementMetric::BooksImported:
-      return UIIcon::Transfer;
-    case AchievementMetric::OtaUpdates:
-      return UIIcon::System;
-  }
-  return UIIcon::Favorite;
-}
-
 std::string titleFromPath(const std::string& path) {
   const size_t slash = path.find_last_of('/');
   const size_t start = slash == std::string::npos ? 0 : slash + 1;
@@ -109,6 +77,27 @@ void drawCenteredInRect(const GfxRenderer& renderer, const int font, const Rect&
                         const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
   const int textWidth = renderer.getTextWidth(font, text, style);
   renderer.drawText(font, rect.x + std::max(0, (rect.width - textWidth) / 2), y, text, true, style);
+}
+
+int drawCenteredWrapped(const GfxRenderer& renderer, const int font, const char* text, const Rect& rect, const int y,
+                        const int maxLines, const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+  const auto lines = renderer.wrappedText(font, text, rect.width, maxLines, style);
+  int lineY = y;
+  const int lineHeight = renderer.getLineHeight(font);
+  for (const auto& line : lines) {
+    drawCenteredInRect(renderer, font, rect, lineY, line.c_str(), style);
+    lineY += lineHeight;
+  }
+  return lineY;
+}
+
+std::string achievementProgressValue(const AchievementMetric metric, const uint32_t value) {
+  if (metric == AchievementMetric::ReadingSeconds || metric == AchievementMetric::NightSeconds) {
+    char duration[40];
+    formatDuration(value, duration, sizeof(duration));
+    return duration;
+  }
+  return std::to_string(value);
 }
 
 void drawMetricCard(const GfxRenderer& renderer, const Rect& rect, const char* value, const char* label,
@@ -268,6 +257,9 @@ void ReadingStatsActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (page == Page::Menu) {
       onGoHome(HomeMenuItem::READING_STATS);
+    } else if (page == Page::AchievementDetail) {
+      page = Page::Achievements;
+      requestUpdate();
     } else {
       page = Page::Menu;
       requestUpdate();
@@ -338,6 +330,22 @@ void ReadingStatsActivity::loop() {
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
       selectedAchievement =
           (selectedAchievement + static_cast<int>(achievementCount()) - 1) % static_cast<int>(achievementCount());
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      page = Page::AchievementDetail;
+      requestUpdate();
+    }
+    return;
+  }
+
+  if (page == Page::AchievementDetail) {
+    const bool next = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+                      mappedInput.wasPressed(MappedInputManager::Button::Right);
+    const bool previous = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+                          mappedInput.wasPressed(MappedInputManager::Button::Left);
+    if (next || previous) {
+      selectedAchievement = (selectedAchievement + (next ? 1 : static_cast<int>(achievementCount()) - 1)) %
+                            static_cast<int>(achievementCount());
       requestUpdate();
     }
     return;
@@ -644,18 +652,18 @@ void ReadingStatsActivity::renderAchievements() {
 
   const int unlocked = ACHIEVEMENTS.unlockedCount(displayStats);
   const int top = pageContentTop();
-  const Rect summary{PAGE_MARGIN, top, width - PAGE_MARGIN * 2, 82};
+  const Rect summary{PAGE_MARGIN, top, width - PAGE_MARGIN * 2, 96};
   renderer.drawRoundedRect(summary.x, summary.y, summary.width, summary.height, 1, CARD_RADIUS, true);
-  renderer.fillRoundedRect(summary.x + 10, summary.y + 12, 5, summary.height - 24, 2, Color::Black);
+  drawAchievementMedallion(renderer, AchievementId::FirstPage, summary.x + 14, summary.y + 14, 58, true);
 
   char countText[20];
   snprintf(countText, sizeof(countText), "%d / %u", unlocked, static_cast<unsigned>(achievementCount()));
-  renderer.drawText(UI_12_FONT_ID, summary.x + 30, summary.y + 11, countText, true, EpdFontFamily::BOLD);
-  renderer.drawText(SMALL_FONT_ID, summary.x + 30, summary.y + 48, tr(STR_ACHIEVEMENTS_UNLOCKED));
+  renderer.drawText(UI_12_FONT_ID, summary.x + 88, summary.y + 11, countText, true, EpdFontFamily::BOLD);
+  renderer.drawText(SMALL_FONT_ID, summary.x + 88, summary.y + 48, tr(STR_ACHIEVEMENTS_UNLOCKED));
 
-  const int barWidth = std::min(180, summary.width / 2);
-  const int barX = summary.x + summary.width - barWidth - 18;
-  const int barY = summary.y + (summary.height - 10) / 2;
+  const int barX = summary.x + 88;
+  const int barWidth = summary.x + summary.width - 16 - barX;
+  const int barY = summary.y + summary.height - 22;
   renderer.fillRoundedRect(barX, barY, barWidth, 10, 5, Color::LightGray);
   const int fill = barWidth * unlocked / static_cast<int>(achievementCount());
   if (fill > 0) renderer.fillRoundedRect(barX, barY, std::max(3, fill), 10, 5, Color::Black);
@@ -667,21 +675,106 @@ void ReadingStatsActivity::renderAchievements() {
       selectedAchievement,
       [&](const int index) { return std::string(ACHIEVEMENTS.name(static_cast<AchievementId>(index))); },
       [&](const int index) { return std::string(ACHIEVEMENTS.description(static_cast<AchievementId>(index))); },
-      [](const int index) { return achievementIcon(index); },
+      [](const int index) { return achievementIcon(static_cast<AchievementId>(index)); },
       [&](const int index) {
         const AchievementView item = ACHIEVEMENTS.view(static_cast<AchievementId>(index), displayStats);
-        if (item.unlocked) return std::string();
+        if (item.unlocked) return std::string(tr(STR_ACHIEVEMENTS_UNLOCKED));
         const uint32_t percent = item.target == 0 ? 0 : (static_cast<uint64_t>(item.current) * 100u) / item.target;
         return std::to_string(percent) + "%";
       },
-      false,
-      [&](const int index) { return !ACHIEVEMENTS.view(static_cast<AchievementId>(index), displayStats).unlocked; },
-      [&](const int index) {
-        return ACHIEVEMENTS.view(static_cast<AchievementId>(index), displayStats).unlocked ? UIAccessory::Check
-                                                                                           : UIAccessory::None;
-      });
+      false, [&](const int index) { return !ACHIEVEMENTS.isUnlocked(static_cast<AchievementId>(index)); },
+      [](const int) { return UIAccessory::Chevron; });
   GUI.drawFooterCounter(renderer, selectedAchievement, achievementCount());
-  drawBackHints(renderer, mappedInput);
+  const auto hints = mappedInput.mapLabels(tr(STR_BACK), tr(STR_OPEN), "", "");
+  GUI.drawButtonHints(renderer, hints.btn1, hints.btn2, hints.btn3, hints.btn4);
+}
+
+void ReadingStatsActivity::renderAchievementDetail() {
+  renderer.clearScreen();
+  const int width = renderer.getScreenWidth();
+  drawPageHeader(renderer, tr(STR_ACHIEVEMENTS));
+
+  const AchievementId id = static_cast<AchievementId>(selectedAchievement);
+  const AchievementView item = ACHIEVEMENTS.view(id, displayStats);
+  const AchievementMetric metric = ACHIEVEMENT_DEFINITIONS[selectedAchievement].metric;
+  const int top = pageContentTop();
+  const int contentWidth = width - PAGE_MARGIN * 2;
+  const Rect textLane{PAGE_MARGIN + 12, 0, contentWidth - 24, 0};
+
+  constexpr int medallionSize = 92;
+  drawAchievementMedallion(renderer, id, (width - medallionSize) / 2, top + 8, medallionSize, item.unlocked);
+
+  const char* status = item.unlocked ? tr(STR_ACHIEVEMENTS_UNLOCKED) : tr(STR_ACH_LOCKED);
+  const int statusW = renderer.getTextWidth(SMALL_FONT_ID, status, EpdFontFamily::BOLD) + 28;
+  const int statusH = 28;
+  const int statusX = (width - statusW) / 2;
+  const int statusY = top + 112;
+  if (item.unlocked) {
+    renderer.fillRoundedRect(statusX, statusY, statusW, statusH, statusH / 2, Color::Black);
+    renderer.drawText(SMALL_FONT_ID,
+                      statusX + (statusW - renderer.getTextWidth(SMALL_FONT_ID, status, EpdFontFamily::BOLD)) / 2,
+                      statusY + 5, status, false, EpdFontFamily::BOLD);
+  } else {
+    renderer.drawRoundedRect(statusX, statusY, statusW, statusH, 1, statusH / 2, true);
+    renderer.drawText(SMALL_FONT_ID,
+                      statusX + (statusW - renderer.getTextWidth(SMALL_FONT_ID, status, EpdFontFamily::BOLD)) / 2,
+                      statusY + 5, status, true, EpdFontFamily::BOLD);
+  }
+
+  int textY = statusY + statusH + 18;
+  textY = drawCenteredWrapped(renderer, UI_14_FONT_ID, item.name.c_str(), textLane, textY, 2, EpdFontFamily::BOLD) + 8;
+  textY = drawCenteredWrapped(renderer, UI_10_FONT_ID, item.description.c_str(), textLane, textY, 3) + 18;
+
+  const Rect progressCard{PAGE_MARGIN, textY, contentWidth, 112};
+  renderer.drawRoundedRect(progressCard.x, progressCard.y, progressCard.width, progressCard.height, 1, CARD_RADIUS,
+                           true);
+  renderer.drawText(UI_10_FONT_ID, progressCard.x + 16, progressCard.y + 13, tr(STR_PROGRESS), true,
+                    EpdFontFamily::BOLD);
+  const std::string current = achievementProgressValue(metric, item.current);
+  const std::string target = achievementProgressValue(metric, item.target);
+  const std::string progressText = current + " / " + target;
+  const int progressTextW = renderer.getTextWidth(SMALL_FONT_ID, progressText.c_str());
+  renderer.drawText(SMALL_FONT_ID, progressCard.x + progressCard.width - progressTextW - 16, progressCard.y + 16,
+                    progressText.c_str());
+  const int barX = progressCard.x + 16;
+  const int barY = progressCard.y + 58;
+  const int barW = progressCard.width - 32;
+  renderer.fillRoundedRect(barX, barY, barW, 14, 7, Color::LightGray);
+  const int fill =
+      item.target == 0
+          ? 0
+          : static_cast<int>(std::min<uint64_t>(barW, static_cast<uint64_t>(barW) * item.current / item.target));
+  if (fill > 0) renderer.fillRoundedRect(barX, barY, std::max(4, fill), 14, 7, Color::Black);
+  const uint32_t percent = item.target == 0 ? 0 : (static_cast<uint64_t>(item.current) * 100u) / item.target;
+  char percentText[12];
+  snprintf(percentText, sizeof(percentText), "%lu%%", static_cast<unsigned long>(percent));
+  drawCenteredInRect(renderer, SMALL_FONT_ID, progressCard, progressCard.y + 82, percentText, EpdFontFamily::BOLD);
+
+  if (item.unlocked) {
+    const Rect earnedCard{PAGE_MARGIN, progressCard.y + progressCard.height + 12, contentWidth, 64};
+    renderer.fillRoundedRect(earnedCard.x, earnedCard.y, earnedCard.width, earnedCard.height, CARD_RADIUS,
+                             Color::LightGray);
+    std::string earnedText;
+    ReadingStatsDate earnedDate;
+    if (item.earnedDayIndex != ACHIEVEMENT_DAY_UNKNOWN &&
+        readingStatsDateFromDayIndex(item.earnedDayIndex, earnedDate)) {
+      char date[16];
+      snprintf(date, sizeof(date), "%04u-%02u-%02u", static_cast<unsigned>(earnedDate.year),
+               static_cast<unsigned>(earnedDate.month), static_cast<unsigned>(earnedDate.day));
+      char earned[64];
+      snprintf(earned, sizeof(earned), tr(STR_ACH_EARNED_ON), date);
+      earnedText = earned;
+    } else {
+      earnedText = tr(STR_ACH_EARNED_DATE_UNKNOWN);
+    }
+    drawCenteredWrapped(renderer, SMALL_FONT_ID, earnedText.c_str(),
+                        Rect{earnedCard.x + 12, 0, earnedCard.width - 24, 0}, earnedCard.y + 19, 2,
+                        EpdFontFamily::BOLD);
+  }
+
+  GUI.drawFooterCounter(renderer, selectedAchievement, achievementCount());
+  const auto hints = mappedInput.mapLabels(tr(STR_BACK), "", tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+  GUI.drawButtonHints(renderer, hints.btn1, hints.btn2, hints.btn3, hints.btn4);
 }
 
 void ReadingStatsActivity::render(RenderLock&&) {
@@ -709,6 +802,9 @@ void ReadingStatsActivity::render(RenderLock&&) {
       break;
     case Page::Achievements:
       renderAchievements();
+      break;
+    case Page::AchievementDetail:
+      renderAchievementDetail();
       break;
   }
   renderer.displayBuffer();

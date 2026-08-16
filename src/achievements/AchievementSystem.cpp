@@ -16,15 +16,23 @@
 namespace {
 constexpr char ACHIEVEMENT_PATH[] = "/.crosspoint/achievements.bin";
 constexpr char ACHIEVEMENT_TEMP_PATH[] = "/.crosspoint/achievements.bin.tmp";
-constexpr uint8_t FILE_VERSION = 2;
-constexpr size_t FILE_SIZE = 64;
-constexpr uint8_t LEGACY_FILE_VERSION = 1;
-constexpr size_t LEGACY_FILE_SIZE = 44;
+constexpr uint8_t FILE_VERSION = 3;
+constexpr uint8_t LEGACY_V2_FILE_VERSION = 2;
+constexpr size_t LEGACY_V2_FILE_SIZE = 64;
+constexpr size_t LEGACY_V2_CHECKSUM_OFFSET = 60;
+constexpr uint8_t LEGACY_V1_FILE_VERSION = 1;
+constexpr size_t LEGACY_V1_FILE_SIZE = 44;
+constexpr size_t LEGACY_V1_CHECKSUM_OFFSET = 40;
 constexpr size_t UNLOCKED_OFFSET = 8;
 constexpr size_t PENDING_OFFSET = UNLOCKED_OFFSET + ACHIEVEMENT_BIT_BYTES;
 constexpr size_t COUNTERS_OFFSET = PENDING_OFFSET + ACHIEVEMENT_BIT_BYTES;
-constexpr size_t CHECKSUM_OFFSET = 60;
+constexpr size_t UNLOCK_DAYS_OFFSET = COUNTERS_OFFSET + 24;
+constexpr size_t CHECKSUM_OFFSET = UNLOCK_DAYS_OFFSET + achievementCount() * sizeof(uint16_t);
+constexpr size_t FILE_SIZE = CHECKSUM_OFFSET + sizeof(uint32_t);
 constexpr std::array<uint8_t, 4> MAGIC = {'I', 'P', 'X', 'A'};
+
+static_assert(COUNTERS_OFFSET == 36, "v2 counter layout must remain migration-compatible");
+static_assert(UNLOCK_DAYS_OFFSET == 60, "unlock dates must follow the six v2 counters");
 
 constexpr std::array<StrId, 16> LEGACY_NAMES = {
     StrId::STR_ACH_FIRST_PAGE,   StrId::STR_ACH_PAGE_TURNER,      StrId::STR_ACH_THOUSAND_PAGES,
@@ -47,6 +55,15 @@ constexpr std::array<StrId, 16> LEGACY_DESCRIPTIONS = {
 uint32_t readLe32(const uint8_t* data, const size_t offset) {
   return static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8) |
          (static_cast<uint32_t>(data[offset + 2]) << 16) | (static_cast<uint32_t>(data[offset + 3]) << 24);
+}
+
+uint16_t readLe16(const uint8_t* data, const size_t offset) {
+  return static_cast<uint16_t>(data[offset]) | (static_cast<uint16_t>(data[offset + 1]) << 8);
+}
+
+void writeLe16(uint8_t* data, const size_t offset, const uint16_t value) {
+  data[offset] = value & 0xff;
+  data[offset + 1] = (value >> 8) & 0xff;
 }
 
 void writeLe32(uint8_t* data, const size_t offset, const uint32_t value) {
@@ -183,9 +200,14 @@ bool AchievementSystem::ensureLoaded() {
     const bool current = size == FILE_SIZE && read == static_cast<int>(FILE_SIZE) &&
                          std::equal(MAGIC.begin(), MAGIC.end(), data.begin()) && data[4] == FILE_VERSION &&
                          readLe32(data.data(), CHECKSUM_OFFSET) == checksum(data.data(), CHECKSUM_OFFSET);
-    const bool legacy = size == LEGACY_FILE_SIZE && read == static_cast<int>(LEGACY_FILE_SIZE) &&
-                        std::equal(MAGIC.begin(), MAGIC.end(), data.begin()) && data[4] == LEGACY_FILE_VERSION &&
-                        readLe32(data.data(), 40) == checksum(data.data(), 40);
+    const bool legacyV2 =
+        size == LEGACY_V2_FILE_SIZE && read == static_cast<int>(LEGACY_V2_FILE_SIZE) &&
+        std::equal(MAGIC.begin(), MAGIC.end(), data.begin()) && data[4] == LEGACY_V2_FILE_VERSION &&
+        readLe32(data.data(), LEGACY_V2_CHECKSUM_OFFSET) == checksum(data.data(), LEGACY_V2_CHECKSUM_OFFSET);
+    const bool legacyV1 =
+        size == LEGACY_V1_FILE_SIZE && read == static_cast<int>(LEGACY_V1_FILE_SIZE) &&
+        std::equal(MAGIC.begin(), MAGIC.end(), data.begin()) && data[4] == LEGACY_V1_FILE_VERSION &&
+        readLe32(data.data(), LEGACY_V1_CHECKSUM_OFFSET) == checksum(data.data(), LEGACY_V1_CHECKSUM_OFFSET);
     if (current) {
       counters.formatsOpened = data[5];
       std::copy_n(data.begin() + UNLOCKED_OFFSET, ACHIEVEMENT_BIT_BYTES, unlockedBits.begin());
@@ -196,8 +218,23 @@ bool AchievementSystem::ensureLoaded() {
       counters.wifiConnections = readLe32(data.data(), COUNTERS_OFFSET + 12);
       counters.fontsDownloaded = readLe32(data.data(), COUNTERS_OFFSET + 16);
       counters.otaUpdates = readLe32(data.data(), COUNTERS_OFFSET + 20);
+      for (size_t i = 0; i < unlockDays.size(); ++i) {
+        unlockDays[i] = readLe16(data.data(), UNLOCK_DAYS_OFFSET + i * sizeof(uint16_t));
+      }
       valid = true;
-    } else if (legacy) {
+    } else if (legacyV2) {
+      counters.formatsOpened = data[5];
+      std::copy_n(data.begin() + UNLOCKED_OFFSET, ACHIEVEMENT_BIT_BYTES, unlockedBits.begin());
+      std::copy_n(data.begin() + PENDING_OFFSET, ACHIEVEMENT_BIT_BYTES, pendingBits.begin());
+      counters.dictionaryLookups = readLe32(data.data(), COUNTERS_OFFSET);
+      counters.bookmarksAdded = readLe32(data.data(), COUNTERS_OFFSET + 4);
+      counters.booksImported = readLe32(data.data(), COUNTERS_OFFSET + 8);
+      counters.wifiConnections = readLe32(data.data(), COUNTERS_OFFSET + 12);
+      counters.fontsDownloaded = readLe32(data.data(), COUNTERS_OFFSET + 16);
+      counters.otaUpdates = readLe32(data.data(), COUNTERS_OFFSET + 20);
+      valid = true;
+      migrated = true;
+    } else if (legacyV1) {
       counters.formatsOpened = data[5];
       copyBitsFromLegacy(unlockedBits, readLe32(data.data(), 8));
       copyBitsFromLegacy(pendingBits, readLe32(data.data(), 12));
@@ -215,6 +252,7 @@ bool AchievementSystem::ensureLoaded() {
   if (!valid) {
     counters = {};
     pendingBits = {};
+    unlockDays = makeUnknownAchievementUnlockDays();
     unlockedBits = evaluateAchievementBits(makeSnapshot(GlobalReadingStats::load()));
     save();
   } else if (migrated) {
@@ -241,6 +279,9 @@ bool AchievementSystem::save() const {
   writeLe32(data.data(), COUNTERS_OFFSET + 12, counters.wifiConnections);
   writeLe32(data.data(), COUNTERS_OFFSET + 16, counters.fontsDownloaded);
   writeLe32(data.data(), COUNTERS_OFFSET + 20, counters.otaUpdates);
+  for (size_t i = 0; i < unlockDays.size(); ++i) {
+    writeLe16(data.data(), UNLOCK_DAYS_OFFSET + i * sizeof(uint16_t), unlockDays[i]);
+  }
   writeLe32(data.data(), CHECKSUM_OFFSET, checksum(data.data(), CHECKSUM_OFFSET));
 
   HalFile file;
@@ -261,6 +302,13 @@ bool AchievementSystem::evaluate(const GlobalReadingStats& stats, const bool not
   AchievementBits newlyUnlocked{};
   const bool changed = addNewBits(unlockedBits, evaluateAchievementBits(makeSnapshot(stats)), &newlyUnlocked);
   if (!changed) return false;
+  ReadingStatsDateTime now;
+  if (getCurrentLocalReadingStatsDateTime(now)) {
+    const uint32_t dayIndex = readingStatsDayIndex(now.date);
+    if (dayIndex < ACHIEVEMENT_DAY_UNKNOWN) {
+      stampAchievementUnlockDays(unlockDays, newlyUnlocked, static_cast<uint16_t>(dayIndex));
+    }
+  }
   if (notify) {
     for (size_t i = 0; i < pendingBits.size(); ++i) pendingBits[i] |= newlyUnlocked[i];
   }
@@ -313,8 +361,12 @@ AchievementView AchievementSystem::view(const AchievementId id, const GlobalRead
   const auto& definition = ACHIEVEMENT_DEFINITIONS[index];
   const bool needsDailyGoalHistory = definition.metric == AchievementMetric::DailyGoalsCompleted;
   const uint32_t current = achievementMetricValue(definition.metric, makeSnapshot(stats, needsDailyGoalHistory));
-  return {name(id), description(id), std::min(current, definition.target), definition.target,
-          achievementBitIsSet(unlockedBits, id)};
+  return {name(id),          description(id),   std::min(current, definition.target),
+          definition.target, unlockDays[index], achievementBitIsSet(unlockedBits, id)};
+}
+
+bool AchievementSystem::isUnlocked(const AchievementId id) {
+  return ensureLoaded() && achievementBitIsSet(unlockedBits, id);
 }
 
 uint16_t AchievementSystem::unlockedCount(const GlobalReadingStats& stats) {
