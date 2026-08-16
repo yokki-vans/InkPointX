@@ -1,14 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "AchievementModel.h"
 
 struct GlobalReadingStats;
 
 struct AchievementView {
-  const char* name = "";
-  const char* description = "";
+  std::string name;
+  std::string description;
   uint32_t current = 0;
   uint32_t target = 0;
   bool unlocked = false;
@@ -16,14 +17,14 @@ struct AchievementView {
 
 class AchievementSystem {
   AchievementCounters counters;
-  uint32_t unlockedMask = 0;
-  uint32_t pendingMask = 0;
+  AchievementBits unlockedBits{};
+  AchievementBits pendingBits{};
   bool loaded = false;
   bool blockSave = false;
 
   bool ensureLoaded();
   bool save() const;
-  AchievementSnapshot makeSnapshot(const GlobalReadingStats& stats) const;
+  AchievementSnapshot makeSnapshot(const GlobalReadingStats& stats, bool includeDailyGoals = true) const;
   bool evaluate(const GlobalReadingStats& stats, bool notify);
 
  public:
@@ -34,11 +35,11 @@ class AchievementSystem {
   void recordFormat(AchievementBookFormat format);
 
   AchievementView view(AchievementId id, const GlobalReadingStats& stats);
-  uint8_t unlockedCount(const GlobalReadingStats& stats);
-  uint32_t takePendingUnlocks();
+  uint16_t unlockedCount(const GlobalReadingStats& stats);
+  bool takePendingUnlocks(AchievementId& first, uint16_t& count);
 
-  const char* name(AchievementId id) const;
-  const char* description(AchievementId id) const;
+  std::string name(AchievementId id) const;
+  std::string description(AchievementId id) const;
 };
 
 #define ACHIEVEMENTS AchievementSystem::getInstance()

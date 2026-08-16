@@ -45,6 +45,7 @@
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "reading_goal/ReadingGoalSystem.h"
 #include "util/BookmarkUtil.h"
 #include "util/ScreenshotUtil.h"
 
@@ -276,6 +277,7 @@ void EpubReaderActivity::onExit() {
     stats.save(epub->getCachePath());
   }
   globalStats.save();
+  READING_GOAL.onStatsUpdated(globalStats);
   ACHIEVEMENTS.refresh(globalStats);
 
   // Reset orientation back to portrait for the rest of the UI

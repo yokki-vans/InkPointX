@@ -24,6 +24,7 @@
 #include "network/NetworkModeSelectionActivity.h"
 #include "reader/ReaderActivity.h"
 #include "reader/ReadingStatsActivity.h"
+#include "reading_goal/ReadingGoalSystem.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/AchievementUnlockActivity.h"
@@ -243,6 +244,7 @@ void ActivityManager::loop() {
   }
 
   showPendingAchievement();
+  showPendingReadingGoal();
 
   bool shouldRender = false;
   taskENTER_CRITICAL(&renderStateMux);
@@ -263,24 +265,44 @@ void ActivityManager::showPendingAchievement() {
     return;
   }
 
-  const uint32_t pending = ACHIEVEMENTS.takePendingUnlocks();
-  if (pending == 0) return;
   AchievementId first = AchievementId::FirstPage;
-  for (size_t i = 0; i < achievementCount(); ++i) {
-    if ((pending & achievementBit(static_cast<AchievementId>(i))) != 0) {
-      first = static_cast<AchievementId>(i);
-      break;
-    }
-  }
+  uint16_t count = 0;
+  if (!ACHIEVEMENTS.takePendingUnlocks(first, count)) return;
 
   std::string message = tr(STR_ACHIEVEMENT_UNLOCKED);
   message += "\n";
   message += ACHIEVEMENTS.name(first);
-  const uint8_t count = achievementPopcount(pending);
   if (count > 1) {
     message += "\n+";
     message += std::to_string(count - 1);
   }
+  pushActivity(makeUniqueNoThrow<AchievementUnlockActivity>(renderer, mappedInput, std::move(message)));
+}
+
+void ActivityManager::showPendingReadingGoal() {
+  if (!currentActivity || pendingAction != PendingAction::None || currentActivity->isReaderActivity()) return;
+  const std::string& activityName = currentActivity->name;
+  if (activityName == "AchievementUnlock" || activityName == "Boot" || activityName == "Sleep" ||
+      activityName == "Crash" || activityName == "OtaUpdate" || activityName == "SdFirmwareUpdate" ||
+      activityName == "FullScreenMessage") {
+    return;
+  }
+
+  ReadingGoalNotification notification;
+  if (!READING_GOAL.takeNotification(notification)) return;
+  char detail[48];
+  std::string message;
+  if (notification.type == ReadingGoalNotificationType::Completed) {
+    message = tr(STR_READING_GOAL_COMPLETED);
+    snprintf(detail, sizeof(detail), tr(STR_READING_GOAL_PROGRESS_FORMAT),
+             static_cast<unsigned>(notification.currentMinutes), static_cast<unsigned>(notification.targetMinutes));
+  } else {
+    message = tr(STR_READING_GOAL_REMINDER);
+    snprintf(detail, sizeof(detail), tr(STR_READING_GOAL_REMAINING_FORMAT),
+             static_cast<unsigned>(notification.remainingMinutes));
+  }
+  message += "\n";
+  message += detail;
   pushActivity(makeUniqueNoThrow<AchievementUnlockActivity>(renderer, mappedInput, std::move(message)));
 }
 

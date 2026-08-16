@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "achievements/AchievementSystem.h"
+#include "reading_goal/ReadingGoalSystem.h"
 
 namespace {
 constexpr unsigned long MIN_PAGE_MS = 2000UL;
@@ -65,6 +66,7 @@ void ReadingSessionStats::finish(const std::string& cachePath) {
   }
   book.save(cachePath);
   global.save();
+  READING_GOAL.onStatsUpdated(global);
   ACHIEVEMENTS.refresh(global);
   started = false;
 }

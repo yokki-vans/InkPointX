@@ -11,16 +11,16 @@ TEST(AchievementModel, UnlocksReadingThresholdsWithoutUnlockingFutureMilestones)
   snapshot.longestStreak = 7;
   snapshot.nightSeconds = 3599;
 
-  const uint32_t mask = evaluateAchievementMask(snapshot);
-  EXPECT_NE(mask & achievementBit(AchievementId::FirstPage), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::PageTurner), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::QuietHour), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::RegularReader), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::FirstFinish), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::SevenDayStreak), 0u);
-  EXPECT_EQ(mask & achievementBit(AchievementId::ThousandPages), 0u);
-  EXPECT_EQ(mask & achievementBit(AchievementId::DeepReader), 0u);
-  EXPECT_EQ(mask & achievementBit(AchievementId::NightOwl), 0u);
+  const AchievementBits bits = evaluateAchievementBits(snapshot);
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::FirstPage));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::PageTurner));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::QuietHour));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::RegularReader));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::FirstFinish));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::SevenDayStreak));
+  EXPECT_FALSE(achievementBitIsSet(bits, AchievementId::ThousandPages));
+  EXPECT_FALSE(achievementBitIsSet(bits, AchievementId::DeepReader));
+  EXPECT_FALSE(achievementBitIsSet(bits, AchievementId::NightOwl));
 }
 
 TEST(AchievementModel, CountsUniqueBookFormats) {
@@ -28,10 +28,10 @@ TEST(AchievementModel, CountsUniqueBookFormats) {
   snapshot.interactions.formatsOpened = (1u << static_cast<uint8_t>(AchievementBookFormat::Epub)) |
                                         (1u << static_cast<uint8_t>(AchievementBookFormat::Pdf));
   EXPECT_EQ(achievementMetricValue(AchievementMetric::FormatsOpened, snapshot), 2u);
-  EXPECT_EQ(evaluateAchievementMask(snapshot) & achievementBit(AchievementId::FormatExplorer), 0u);
+  EXPECT_FALSE(achievementBitIsSet(evaluateAchievementBits(snapshot), AchievementId::FormatExplorer));
 
   snapshot.interactions.formatsOpened |= 1u << static_cast<uint8_t>(AchievementBookFormat::Text);
-  EXPECT_NE(evaluateAchievementMask(snapshot) & achievementBit(AchievementId::FormatExplorer), 0u);
+  EXPECT_TRUE(achievementBitIsSet(evaluateAchievementBits(snapshot), AchievementId::FormatExplorer));
 }
 
 TEST(AchievementModel, InteractionThresholdsRequireSuccessfulCounts) {
@@ -40,15 +40,24 @@ TEST(AchievementModel, InteractionThresholdsRequireSuccessfulCounts) {
   snapshot.interactions.bookmarksAdded = 10;
   snapshot.interactions.booksImported = 1;
 
-  const uint32_t mask = evaluateAchievementMask(snapshot);
-  EXPECT_EQ(mask & achievementBit(AchievementId::WordHunter), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::BookmarkKeeper), 0u);
-  EXPECT_NE(mask & achievementBit(AchievementId::BookCourier), 0u);
+  const AchievementBits bits = evaluateAchievementBits(snapshot);
+  EXPECT_FALSE(achievementBitIsSet(bits, AchievementId::WordHunter));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::BookmarkKeeper));
+  EXPECT_TRUE(achievementBitIsSet(bits, AchievementId::BookCourier));
 }
 
-TEST(AchievementModel, EveryDefinitionHasARepresentableBit) {
-  static_assert(achievementCount() <= 32);
-  uint32_t mask = 0;
-  for (size_t i = 0; i < achievementCount(); ++i) mask |= achievementBit(static_cast<AchievementId>(i));
-  EXPECT_EQ(achievementPopcount(mask), achievementCount());
+TEST(AchievementModel, CatalogHasAtLeastOneHundredRepresentableAchievements) {
+  static_assert(achievementCount() >= 100);
+  AchievementBits bits{};
+  for (size_t i = 0; i < achievementCount(); ++i) setAchievementBit(bits, static_cast<AchievementId>(i));
+  EXPECT_EQ(achievementPopcount(bits), achievementCount());
+  for (const auto& definition : ACHIEVEMENT_DEFINITIONS) EXPECT_GT(definition.target, 0u);
+}
+
+TEST(AchievementModel, DailyGoalTrackIncludesOneYearMilestone) {
+  AchievementSnapshot snapshot;
+  snapshot.dailyGoalsCompleted = 365;
+  const AchievementBits bits = evaluateAchievementBits(snapshot);
+  EXPECT_EQ(achievementMetricValue(AchievementMetric::DailyGoalsCompleted, snapshot), 365u);
+  EXPECT_TRUE(achievementBitIsSet(bits, static_cast<AchievementId>(achievementCount() - 1)));
 }
