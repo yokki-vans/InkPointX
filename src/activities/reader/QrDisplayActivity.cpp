@@ -17,8 +17,7 @@ void QrDisplayActivity::onEnter() {
 void QrDisplayActivity::onExit() { Activity::onExit(); }
 
 void QrDisplayActivity::loop() {
-  if (!inputGuard_.allowsInput(mappedInput,
-                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+  if (!inputGuard_.allowsInput(mappedInput, {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||

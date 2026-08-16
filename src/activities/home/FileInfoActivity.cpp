@@ -32,8 +32,7 @@ void FileInfoActivity::onEnter() {
 }
 
 void FileInfoActivity::loop() {
-  if (!inputGuard_.allowsInput(mappedInput,
-                               {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
+  if (!inputGuard_.allowsInput(mappedInput, {MappedInputManager::Button::Back, MappedInputManager::Button::Confirm})) {
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||

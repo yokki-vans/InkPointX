@@ -3,8 +3,8 @@
 #include <Epub/Page.h>
 #include <Epub/PageWordIndex.h>
 
-#include <memory>
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 

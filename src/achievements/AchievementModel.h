@@ -76,29 +76,27 @@ struct AchievementDefinition {
   uint32_t target;
 };
 
-inline constexpr std::array<AchievementDefinition, static_cast<size_t>(AchievementId::Count)>
-    ACHIEVEMENT_DEFINITIONS = {{{AchievementMetric::Pages, 1},
-                                {AchievementMetric::Pages, 100},
-                                {AchievementMetric::Pages, 1000},
-                                {AchievementMetric::ReadingSeconds, 3600},
-                                {AchievementMetric::ReadingSeconds, 36000},
-                                {AchievementMetric::Sessions, 10},
-                                {AchievementMetric::CompletedBooks, 1},
-                                {AchievementMetric::LongestStreak, 7},
-                                {AchievementMetric::NightSeconds, 3600},
-                                {AchievementMetric::DictionaryLookups, 10},
-                                {AchievementMetric::BookmarksAdded, 10},
-                                {AchievementMetric::FormatsOpened, 3},
-                                {AchievementMetric::WifiConnections, 1},
-                                {AchievementMetric::FontsDownloaded, 1},
-                                {AchievementMetric::BooksImported, 1},
-                                {AchievementMetric::OtaUpdates, 1}}};
+inline constexpr std::array<AchievementDefinition, static_cast<size_t>(AchievementId::Count)> ACHIEVEMENT_DEFINITIONS =
+    {{{AchievementMetric::Pages, 1},
+      {AchievementMetric::Pages, 100},
+      {AchievementMetric::Pages, 1000},
+      {AchievementMetric::ReadingSeconds, 3600},
+      {AchievementMetric::ReadingSeconds, 36000},
+      {AchievementMetric::Sessions, 10},
+      {AchievementMetric::CompletedBooks, 1},
+      {AchievementMetric::LongestStreak, 7},
+      {AchievementMetric::NightSeconds, 3600},
+      {AchievementMetric::DictionaryLookups, 10},
+      {AchievementMetric::BookmarksAdded, 10},
+      {AchievementMetric::FormatsOpened, 3},
+      {AchievementMetric::WifiConnections, 1},
+      {AchievementMetric::FontsDownloaded, 1},
+      {AchievementMetric::BooksImported, 1},
+      {AchievementMetric::OtaUpdates, 1}}};
 
 constexpr size_t achievementCount() { return static_cast<size_t>(AchievementId::Count); }
 
-constexpr uint32_t achievementBit(const AchievementId id) {
-  return 1u << static_cast<uint8_t>(id);
-}
+constexpr uint32_t achievementBit(const AchievementId id) { return 1u << static_cast<uint8_t>(id); }
 
 inline uint8_t achievementPopcount(uint32_t value) {
   uint8_t count = 0;
