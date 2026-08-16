@@ -9,6 +9,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
+#include "achievements/AchievementSystem.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -765,6 +766,7 @@ void WifiSelectionActivity::onComplete(const bool connected) {
   ActivityResult result;
   result.isCancelled = !connected;
   if (connected) {
+    ACHIEVEMENTS.record(AchievementEvent::WifiConnected);
     result.data = WifiResult{true, selectedSSID, connectedIP};
   }
   setResult(std::move(result));

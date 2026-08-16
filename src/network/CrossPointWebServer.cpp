@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstring>
 #include <new>
+#include <string_view>
 
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
@@ -23,6 +24,7 @@
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
+#include "achievements/AchievementSystem.h"
 #include "components/UITheme.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
@@ -39,6 +41,13 @@ constexpr uint16_t LOCAL_UDP_PORT = 8134;
 constexpr const char* PAIRING_COOKIE = "InkPointPair";
 constexpr const char* PAIRING_HEADER = "X-InkPoint-Token";
 constexpr const char* PAIRING_QUERY = "pair";
+
+bool isBookUpload(const String& path) {
+  const std::string_view pathView{path.c_str(), path.length()};
+  return FsHelpers::hasEpubExtension(pathView) || FsHelpers::hasFb2Extension(pathView) ||
+         FsHelpers::hasPdfExtension(pathView) || FsHelpers::hasXtcExtension(pathView) ||
+         FsHelpers::hasTxtExtension(pathView) || FsHelpers::hasMarkdownExtension(pathView);
+}
 
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
@@ -951,6 +960,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 
         // Clear epub cache to prevent stale metadata issues when overwriting files
         clearBookCache(state.finalPath.c_str());
+        if (state.size > 0 && isBookUpload(state.finalPath)) ACHIEVEMENTS.record(AchievementEvent::BookImported);
       }
     }
     if (!state.success && !state.tempPath.isEmpty()) {
@@ -1960,6 +1970,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
         // Clear epub cache to prevent stale metadata issues when overwriting files
         clearBookCache(wsUploadFinalPath.c_str());
+        if (wsUploadSize > 0 && isBookUpload(wsUploadFinalPath)) ACHIEVEMENTS.record(AchievementEvent::BookImported);
 
         wsServer->sendTXT(num, "DONE");
         wsLastProgressSent = 0;

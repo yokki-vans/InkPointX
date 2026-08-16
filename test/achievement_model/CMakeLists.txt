@@ -1,0 +1,3 @@
+add_executable(achievement_model_tests achievement_model_tests.cpp)
+target_link_libraries(achievement_model_tests PRIVATE GTest::gtest_main crosspoint_test_common)
+gtest_discover_tests(achievement_model_tests)

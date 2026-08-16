@@ -10,6 +10,7 @@
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "achievements/AchievementSystem.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
@@ -325,6 +326,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
 
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    ACHIEVEMENTS.record(AchievementEvent::BookImported);
     state = BrowserState::BROWSING;
   } else if (result == HttpDownloader::ABORTED) {
     Storage.remove(filename.c_str());

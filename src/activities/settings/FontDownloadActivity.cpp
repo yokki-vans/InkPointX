@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "achievements/AchievementSystem.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -443,6 +444,7 @@ void FontDownloadActivity::downloadFamily(const int familyIndex, const bool fina
   fontInstaller_.refreshRegistry();
   catalogFamily.installed = true;
   catalogFamily.hasUpdate = false;
+  ACHIEVEMENTS.record(AchievementEvent::FontDownloaded);
 
   if (finalize) {
     RenderLock lock(*this);

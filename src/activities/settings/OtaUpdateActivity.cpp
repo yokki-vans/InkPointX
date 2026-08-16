@@ -11,6 +11,7 @@
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "achievements/AchievementSystem.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/LayoutGeometry.h"
 #include "components/UITheme.h"
@@ -372,6 +373,8 @@ void OtaUpdateActivity::loop() {
         requestUpdate();
         return;
       }
+
+      ACHIEVEMENTS.record(AchievementEvent::OtaUpdated);
 
       {
         RenderLock lock(*this);

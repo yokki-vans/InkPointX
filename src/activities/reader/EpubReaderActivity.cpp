@@ -38,6 +38,7 @@
 #include "ReaderGesturesActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "achievements/AchievementSystem.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -275,6 +276,7 @@ void EpubReaderActivity::onExit() {
     stats.save(epub->getCachePath());
   }
   globalStats.save();
+  ACHIEVEMENTS.refresh(globalStats);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -1886,6 +1888,8 @@ void EpubReaderActivity::addBookmark() {
   const bool ok = JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str());
   if (!ok) {
     LOG_ERR("ERS", "Failed to save bookmarks to: %s", path.c_str());
+  } else if (!bookmarkRemoved) {
+    ACHIEVEMENTS.record(AchievementEvent::BookmarkAdded);
   }
   requestUpdate();
 }

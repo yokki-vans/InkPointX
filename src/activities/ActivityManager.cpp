@@ -2,12 +2,14 @@
 
 #include <FontCacheManager.h>
 #include <HalPowerManager.h>
+#include <I18n.h>
 #include <Memory.h>
 
 #include <algorithm>
 
 #include "Activity.h"
 #include "OpdsServerStore.h"
+#include "achievements/AchievementSystem.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
@@ -24,6 +26,7 @@
 #include "reader/ReadingStatsActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "util/AchievementUnlockActivity.h"
 #include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
 
@@ -239,6 +242,8 @@ void ActivityManager::loop() {
     }
   }
 
+  showPendingAchievement();
+
   bool shouldRender = false;
   taskENTER_CRITICAL(&renderStateMux);
   if (requestedUpdate) {
@@ -247,6 +252,36 @@ void ActivityManager::loop() {
   }
   taskEXIT_CRITICAL(&renderStateMux);
   if (shouldRender) queueRender();
+}
+
+void ActivityManager::showPendingAchievement() {
+  if (!currentActivity || pendingAction != PendingAction::None) return;
+  const std::string& activityName = currentActivity->name;
+  if (activityName == "AchievementUnlock" || activityName == "Boot" || activityName == "Sleep" ||
+      activityName == "Crash" || activityName == "OtaUpdate" || activityName == "SdFirmwareUpdate" ||
+      activityName == "FullScreenMessage") {
+    return;
+  }
+
+  const uint32_t pending = ACHIEVEMENTS.takePendingUnlocks();
+  if (pending == 0) return;
+  AchievementId first = AchievementId::FirstPage;
+  for (size_t i = 0; i < achievementCount(); ++i) {
+    if ((pending & achievementBit(static_cast<AchievementId>(i))) != 0) {
+      first = static_cast<AchievementId>(i);
+      break;
+    }
+  }
+
+  std::string message = tr(STR_ACHIEVEMENT_UNLOCKED);
+  message += "\n";
+  message += ACHIEVEMENTS.name(first);
+  const uint8_t count = achievementPopcount(pending);
+  if (count > 1) {
+    message += "\n+";
+    message += std::to_string(count - 1);
+  }
+  pushActivity(makeUniqueNoThrow<AchievementUnlockActivity>(renderer, mappedInput, std::move(message)));
 }
 
 void ActivityManager::prepareDisplayForActivity(const Activity& activity) {

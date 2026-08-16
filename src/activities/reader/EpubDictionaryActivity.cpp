@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "DictionaryWordNavigation.h"
 #include "MappedInputManager.h"
+#include "achievements/AchievementSystem.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -217,6 +218,7 @@ void EpubDictionaryActivity::performLookup() {
   lookupWord_ = cleanLookupWord(words_[focus_].text);
   definition_.clear();
   bool truncated = false;
+  bool lookupSucceeded = false;
   if (SETTINGS.dictionaryFolder[0] == '\0') {
     definition_ = tr(STR_DICTIONARY_NOT_SELECTED);
   } else {
@@ -232,6 +234,8 @@ void EpubDictionaryActivity::performLookup() {
       definition_ = tr(STR_DICTIONARY_OPEN_FAILED);
     else if (!dictionary_.lookup(lookupWord_, definition_, &truncated))
       definition_ = tr(STR_DEFINITION_NOT_FOUND);
+    else
+      lookupSucceeded = true;
   }
   if (truncated) {
     while (!definition_.empty() && (static_cast<unsigned char>(definition_.back()) & 0xc0) == 0x80)
@@ -241,6 +245,7 @@ void EpubDictionaryActivity::performLookup() {
   }
   buildDefinitionLines();
   showingDefinition_ = true;
+  if (lookupSucceeded) ACHIEVEMENTS.record(AchievementEvent::DictionaryLookup);
   requestUpdate();
 }
 

@@ -4,6 +4,7 @@
 
 #include "BookStatsView.h"
 #include "MappedInputManager.h"
+#include "achievements/AchievementSystem.h"
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const std::string& bookCachePath, const BookReadingStats& stats,
@@ -50,6 +51,7 @@ void BookStatsActivity::saveStats() {
 
   stats.save(bookCachePath);
   globalStats.save();
+  ACHIEVEMENTS.refresh(globalStats);
   refreshAllDevicesStats();
   didChangeStats = false;
 }

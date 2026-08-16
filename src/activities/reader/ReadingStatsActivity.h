@@ -5,10 +5,11 @@
 
 #include "BookReadingStats.h"
 #include "GlobalReadingStats.h"
+#include "achievements/AchievementModel.h"
 #include "activities/Activity.h"
 
 class ReadingStatsActivity final : public Activity {
-  enum class Page : uint8_t { Menu, Overview, Days, Weeks, Books, Habits };
+  enum class Page : uint8_t { Menu, Overview, Days, Weeks, Books, Habits, Achievements };
 
   struct BookRow {
     std::string title;
@@ -20,6 +21,7 @@ class ReadingStatsActivity final : public Activity {
   Page page = Page::Menu;
   int selectedIndex = 0;
   int selectedBook = 0;
+  int selectedAchievement = 0;
   GlobalReadingStats stats;
   GlobalReadingStats displayStats;
   ReadingStatsDateTime today;
@@ -34,6 +36,7 @@ class ReadingStatsActivity final : public Activity {
   void renderWeeks();
   void renderBooks();
   void renderHabits();
+  void renderAchievements();
 
  public:
   ReadingStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

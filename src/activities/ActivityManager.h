@@ -63,6 +63,7 @@ class ActivityManager {
 
   void exitActivity(const RenderLock& lock);
   void prepareDisplayForActivity(const Activity& activity);
+  void showPendingAchievement();
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;

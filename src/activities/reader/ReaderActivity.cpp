@@ -21,6 +21,7 @@
 #include "TxtReaderActivity.h"
 #include "Xtc.h"
 #include "XtcReaderActivity.h"
+#include "achievements/AchievementSystem.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -282,6 +283,7 @@ void ReaderActivity::onEnter() {
       reportOpenFailure();
       return;
     }
+    ACHIEVEMENTS.recordFormat(AchievementBookFormat::Xtc);
     onGoToXtcReader(std::move(xtc));
   } else if (isTxtFile(initialBookPath)) {
     auto txt = loadTxt(initialBookPath);
@@ -289,6 +291,7 @@ void ReaderActivity::onEnter() {
       reportOpenFailure();
       return;
     }
+    ACHIEVEMENTS.recordFormat(AchievementBookFormat::Text);
     onGoToTxtReader(std::move(txt));
   } else if (isFb2File(initialBookPath)) {
     auto epub = loadFb2AsEpub(initialBookPath);
@@ -296,6 +299,7 @@ void ReaderActivity::onEnter() {
       reportOpenFailure();
       return;
     }
+    ACHIEVEMENTS.recordFormat(AchievementBookFormat::Fb2);
     onGoToEpubReader(std::move(epub));
   } else if (isPdfFile(initialBookPath)) {
     auto epub = loadPdfAsEpub(initialBookPath);
@@ -303,6 +307,7 @@ void ReaderActivity::onEnter() {
       reportOpenFailure();
       return;
     }
+    ACHIEVEMENTS.recordFormat(AchievementBookFormat::Pdf);
     onGoToEpubReader(std::move(epub));
   } else {
     auto epub = loadEpub(initialBookPath);
@@ -310,6 +315,7 @@ void ReaderActivity::onEnter() {
       reportOpenFailure();
       return;
     }
+    ACHIEVEMENTS.recordFormat(AchievementBookFormat::Epub);
     onGoToEpubReader(std::move(epub));
   }
 }

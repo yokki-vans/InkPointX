@@ -4,6 +4,8 @@
 
 #include <algorithm>
 
+#include "achievements/AchievementSystem.h"
+
 namespace {
 constexpr unsigned long MIN_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_SESSION_SECONDS_FOR_TIME = 10UL;
@@ -63,5 +65,6 @@ void ReadingSessionStats::finish(const std::string& cachePath) {
   }
   book.save(cachePath);
   global.save();
+  ACHIEVEMENTS.refresh(global);
   started = false;
 }

@@ -14,6 +14,7 @@
 #include "MappedInputManager.h"
 #include "ReadingStatsSummary.h"
 #include "RecentBooksStore.h"
+#include "achievements/AchievementSystem.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -28,6 +29,12 @@ constexpr std::array<StrId, 7> DAY_LABELS = {StrId::STR_STATS_MON, StrId::STR_ST
                                              StrId::STR_STATS_SUN};
 constexpr std::array<StrId, 4> TIME_LABELS = {StrId::STR_STATS_MORNING, StrId::STR_STATS_AFTERNOON,
                                               StrId::STR_STATS_EVENING, StrId::STR_STATS_NIGHT};
+constexpr std::array<UIIcon, achievementCount()> ACHIEVEMENT_ICONS = {
+    UIIcon::ReaderPage, UIIcon::Reading,          UIIcon::ReaderStats, UIIcon::Clock,
+    UIIcon::Reading,    UIIcon::Recent,           UIIcon::Favorite,    UIIcon::Recent,
+    UIIcon::Clock,      UIIcon::ReaderDictionary, UIIcon::Bookmark,    UIIcon::Files,
+    UIIcon::Wifi,       UIIcon::Interface,        UIIcon::Transfer,    UIIcon::System,
+};
 
 std::string titleFromPath(const std::string& path) {
   const size_t slash = path.find_last_of('/');
@@ -196,6 +203,7 @@ void ReadingStatsActivity::onEnter() {
   stats = GlobalReadingStats::load();
   hasClock = getCurrentLocalReadingStatsDateTime(today);
   loadBooks();
+  ACHIEVEMENTS.refresh(displayStats);
   requestUpdate();
 }
 
@@ -221,7 +229,8 @@ void ReadingStatsActivity::loadBooks() {
 }
 
 void ReadingStatsActivity::openMenuItem() {
-  static constexpr std::array<Page, 5> PAGES = {Page::Overview, Page::Days, Page::Weeks, Page::Books, Page::Habits};
+  static constexpr std::array<Page, 6> PAGES = {Page::Overview, Page::Days,   Page::Weeks,
+                                                Page::Books,    Page::Habits, Page::Achievements};
   if (selectedIndex >= 0 && selectedIndex < static_cast<int>(PAGES.size())) {
     page = PAGES[selectedIndex];
     requestUpdate();
@@ -241,13 +250,25 @@ void ReadingStatsActivity::loop() {
 
   if (page == Page::Menu) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
-      selectedIndex = (selectedIndex + 1) % 5;
+      selectedIndex = (selectedIndex + 1) % 6;
       requestUpdate();
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
-      selectedIndex = (selectedIndex + 4) % 5;
+      selectedIndex = (selectedIndex + 5) % 6;
       requestUpdate();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       openMenuItem();
+    }
+    return;
+  }
+
+  if (page == Page::Achievements) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      selectedAchievement = (selectedAchievement + 1) % static_cast<int>(achievementCount());
+      requestUpdate();
+    } else if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      selectedAchievement =
+          (selectedAchievement + static_cast<int>(achievementCount()) - 1) % static_cast<int>(achievementCount());
+      requestUpdate();
     }
     return;
   }
@@ -275,11 +296,12 @@ void ReadingStatsActivity::renderMenu() {
   renderer.clearScreen();
   const int width = renderer.getScreenWidth();
   drawPageHeader(renderer, tr(STR_READING_STATS));
-  constexpr std::array<UIIcon, 5> ICONS = {UIIcon::ReaderStats, UIIcon::Clock, UIIcon::Recent, UIIcon::Book,
-                                           UIIcon::Reading};
-  const std::array<const char*, 5> labels = {tr(STR_STATS_OVERVIEW), tr(STR_STATS_LAST_7_DAYS),
-                                             tr(STR_STATS_LAST_8_WEEKS), tr(STR_BOOKS), tr(STR_STATS_READING_HABITS)};
-  std::array<std::string, 5> values;
+  constexpr std::array<UIIcon, 6> ICONS = {UIIcon::ReaderStats, UIIcon::Clock,   UIIcon::Recent,
+                                           UIIcon::Book,        UIIcon::Reading, UIIcon::Favorite};
+  const std::array<const char*, 6> labels = {tr(STR_STATS_OVERVIEW),       tr(STR_STATS_LAST_7_DAYS),
+                                             tr(STR_STATS_LAST_8_WEEKS),   tr(STR_BOOKS),
+                                             tr(STR_STATS_READING_HABITS), tr(STR_ACHIEVEMENTS)};
+  std::array<std::string, 6> values;
   char duration[40];
   if (hasClock) {
     formatDuration(displayStats.readingSecondsForDay(today.date), duration, sizeof(duration));
@@ -290,6 +312,7 @@ void ReadingStatsActivity::renderMenu() {
     values[2] = duration;
   }
   values[3] = std::to_string(books.size());
+  values[5] = std::to_string(ACHIEVEMENTS.unlockedCount(displayStats)) + "/" + std::to_string(achievementCount());
   const int top = pageContentTop();
   GUI.drawList(
       renderer, Rect{0, top, width, UITheme::getListContentBottom(renderer, false) - top}, labels.size(), selectedIndex,
@@ -467,6 +490,53 @@ void ReadingStatsActivity::renderHabits() {
   drawBackHints(renderer, mappedInput);
 }
 
+void ReadingStatsActivity::renderAchievements() {
+  renderer.clearScreen();
+  const int width = renderer.getScreenWidth();
+  drawPageHeader(renderer, tr(STR_ACHIEVEMENTS));
+
+  const int unlocked = ACHIEVEMENTS.unlockedCount(displayStats);
+  const int top = pageContentTop();
+  const Rect summary{PAGE_MARGIN, top, width - PAGE_MARGIN * 2, 82};
+  renderer.drawRoundedRect(summary.x, summary.y, summary.width, summary.height, 1, CARD_RADIUS, true);
+  renderer.fillRoundedRect(summary.x + 10, summary.y + 12, 5, summary.height - 24, 2, Color::Black);
+
+  char countText[20];
+  snprintf(countText, sizeof(countText), "%d / %u", unlocked, static_cast<unsigned>(achievementCount()));
+  renderer.drawText(UI_12_FONT_ID, summary.x + 30, summary.y + 11, countText, true, EpdFontFamily::BOLD);
+  renderer.drawText(SMALL_FONT_ID, summary.x + 30, summary.y + 48, tr(STR_ACHIEVEMENTS_UNLOCKED));
+
+  const int barWidth = std::min(180, summary.width / 2);
+  const int barX = summary.x + summary.width - barWidth - 18;
+  const int barY = summary.y + (summary.height - 10) / 2;
+  renderer.fillRoundedRect(barX, barY, barWidth, 10, 5, Color::LightGray);
+  const int fill = barWidth * unlocked / static_cast<int>(achievementCount());
+  if (fill > 0) renderer.fillRoundedRect(barX, barY, std::max(3, fill), 10, 5, Color::Black);
+
+  const int listTop = summary.y + summary.height + 10;
+  const int listBottom = UITheme::getListContentBottom(renderer, true);
+  GUI.drawList(
+      renderer, Rect{0, listTop, width, std::max(0, listBottom - listTop)}, static_cast<int>(achievementCount()),
+      selectedAchievement,
+      [&](const int index) { return std::string(ACHIEVEMENTS.name(static_cast<AchievementId>(index))); },
+      [&](const int index) { return std::string(ACHIEVEMENTS.description(static_cast<AchievementId>(index))); },
+      [](const int index) { return ACHIEVEMENT_ICONS[index]; },
+      [&](const int index) {
+        const AchievementView item = ACHIEVEMENTS.view(static_cast<AchievementId>(index), displayStats);
+        if (item.unlocked) return std::string();
+        const uint32_t percent = item.target == 0 ? 0 : (static_cast<uint64_t>(item.current) * 100u) / item.target;
+        return std::to_string(percent) + "%";
+      },
+      false,
+      [&](const int index) { return !ACHIEVEMENTS.view(static_cast<AchievementId>(index), displayStats).unlocked; },
+      [&](const int index) {
+        return ACHIEVEMENTS.view(static_cast<AchievementId>(index), displayStats).unlocked ? UIAccessory::Check
+                                                                                           : UIAccessory::None;
+      });
+  GUI.drawFooterCounter(renderer, selectedAchievement, achievementCount());
+  drawBackHints(renderer, mappedInput);
+}
+
 void ReadingStatsActivity::render(RenderLock&&) {
   switch (page) {
     case Page::Menu:
@@ -486,6 +556,9 @@ void ReadingStatsActivity::render(RenderLock&&) {
       break;
     case Page::Habits:
       renderHabits();
+      break;
+    case Page::Achievements:
+      renderAchievements();
       break;
   }
   renderer.displayBuffer();
