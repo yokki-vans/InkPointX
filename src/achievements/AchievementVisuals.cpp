@@ -73,33 +73,10 @@ const uint8_t* achievementIconBitmap(const AchievementId id) {
 void drawAchievementMedallion(const GfxRenderer& renderer, const AchievementId id, const int x, const int y,
                               const int size, const bool unlocked) {
   const int radius = std::max(10, size / 4);
-  const int shadowOffset = std::max(2, size / 24);
-  renderer.fillRoundedRect(x + shadowOffset, y + shadowOffset, size, size, radius, Color::LightGray);
   renderer.fillRoundedRect(x, y, size, size, radius, Color::White);
-  renderer.drawRoundedRect(x, y, size, size, 1, radius, true);
-  renderer.drawRoundedRect(x + 5, y + 5, size - 10, size - 10, 1, std::max(7, radius - 4), true);
-
-  // Restrained corner marks make the badge feel engraved while remaining
-  // clean on 1-bit panels and cheap to refresh.
-  const int mark = std::max(5, size / 11);
-  renderer.drawLine(x + 11, y + 11, x + 11 + mark, y + 11, true);
-  renderer.drawLine(x + 11, y + 11, x + 11, y + 11 + mark, true);
-  renderer.drawLine(x + size - 12 - mark, y + size - 12, x + size - 12, y + size - 12, true);
-  renderer.drawLine(x + size - 12, y + size - 12 - mark, x + size - 12, y + size - 12, true);
+  renderer.drawRoundedRect(x, y, size, size, unlocked ? 2 : 1, radius, true);
 
   if (const uint8_t* icon = achievementIconBitmap(id)) {
     renderer.drawIcon(icon, x + (size - 32) / 2, y + (size - 32) / 2, 32, 32);
-  }
-
-  if (unlocked) {
-    const int sealW = std::max(28, size / 2);
-    const int sealH = std::max(5, size / 13);
-    renderer.fillRoundedRect(x + (size - sealW) / 2, y + size - 10, sealW, sealH, sealH / 2, Color::Black);
-  } else {
-    // A sparse veil distinguishes locked badges without erasing the icon.
-    for (int py = y + 8; py < y + size - 8; py += 4) {
-      const int offset = ((py - y) / 4) % 2 == 0 ? 0 : 2;
-      for (int px = x + 8 + offset; px < x + size - 8; px += 4) renderer.drawPixel(px, py, false);
-    }
   }
 }

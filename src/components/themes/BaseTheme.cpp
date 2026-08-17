@@ -43,8 +43,6 @@ constexpr int selectionCornerRadius = 12;
 constexpr int popupMinWidth = 224;
 constexpr int popupScreenInset = 40;
 constexpr int popupCornerRadius = 18;
-constexpr int popupShadowOffset = 5;
-constexpr int popupShadowRadius = 17;
 
 Rect buttonHintGroupRect(const GfxRenderer& renderer, const int groupIndex) {
   const int pageWidth = renderer.getScreenWidth();
@@ -707,9 +705,6 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
 
   drawPopupScrim(renderer);
 
-  // A small offset dithered shadow separates the white card from light book
-  // pages without turning the modal into another heavy black UI element.
-  renderer.fillRoundedRect(x + popupShadowOffset, y + popupShadowOffset, w, h, popupShadowRadius, Color::LightGray);
   renderer.fillRoundedRect(x, y, w, h, popupCornerRadius, Color::White);
   renderer.drawRoundedRect(x, y, w, h, 1, popupCornerRadius, true);
 
