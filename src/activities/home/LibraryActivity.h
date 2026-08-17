@@ -3,7 +3,9 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 #include "util/HoldGestures.h"
@@ -21,6 +23,11 @@ class LibraryActivity final : public Activity {
   void render(RenderLock&&) override;
 
   static bool invalidateIndex();
+  // Read a small, deterministic sample directly from the persisted index.
+  // This avoids both a full SD-card rescan and materialising the catalogue
+  // when another screen only needs a few book suggestions.
+  static void appendRecommendationCandidates(std::vector<RecentBook>& output, const std::string& excludedPath,
+                                             size_t maxCount);
 
  private:
   struct BookEntry {

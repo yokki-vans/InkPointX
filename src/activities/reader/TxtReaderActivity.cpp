@@ -77,7 +77,37 @@ void TxtReaderActivity::onExit() {
   txt.reset();
 }
 
+void TxtReaderActivity::prepareEndOfBook() {
+  if (!txt || endOfBookView.isPrepared()) return;
+  const BookReadingStats snapshot = readingStats.completeAndSnapshot(txt->getCachePath());
+  endOfBookView.prepare(txt->getPath(), txt->getTitle(), txt->getAuthor(), snapshot);
+}
+
 void TxtReaderActivity::loop() {
+  if (atEndOfBook) {
+    prepareEndOfBook();
+    switch (endOfBookView.handleInput(mappedInput)) {
+      case EndOfBookView::Action::Home:
+        onGoHome();
+        break;
+      case EndOfBookView::Action::FileBrowser:
+        activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+        break;
+      case EndOfBookView::Action::OpenRecommendation:
+        onSelectBook(endOfBookView.selectedPath());
+        break;
+      case EndOfBookView::Action::OpenLibrary:
+        activityManager.goToLibrary();
+        break;
+      case EndOfBookView::Action::SelectionChanged:
+        requestUpdate();
+        break;
+      case EndOfBookView::Action::None:
+        break;
+    }
+    return;
+  }
+
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
     activityManager.goToFileBrowser(txt ? txt->getPath() : "");
@@ -108,10 +138,7 @@ void TxtReaderActivity::loop() {
   readingStats.pageTurn(nextTriggered);
 
   if (prevTriggered) {
-    if (atEndOfBook) {
-      atEndOfBook = false;
-      requestUpdate();
-    } else if (currentPage > 0) {
+    if (currentPage > 0) {
       currentPage--;
       requestUpdate();
     }
@@ -120,14 +147,9 @@ void TxtReaderActivity::loop() {
       currentPage++;
       requestUpdate();
     } else if (fullyIndexed) {
-      // Match the EPUB/XTC readers: show the end-of-book screen first; only a
-      // second forward press leaves the book.
-      if (atEndOfBook) {
-        onGoHome();
-      } else {
-        atEndOfBook = true;
-        requestUpdate();
-      }
+      atEndOfBook = true;
+      prepareEndOfBook();
+      requestUpdate();
     }
   }
 }
@@ -416,10 +438,8 @@ void TxtReaderActivity::render(RenderLock&&) {
   }
 
   if (atEndOfBook) {
-    renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
-    const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    prepareEndOfBook();
+    endOfBookView.render(renderer, mappedInput);
     renderer.displayBuffer();
     return;
   }

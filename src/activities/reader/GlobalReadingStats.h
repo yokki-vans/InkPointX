@@ -11,7 +11,7 @@ struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
   uint32_t totalPagesTurned = 0;     // Total forward page turns after the dwell threshold
-  uint32_t completedBooks = 0;       // Books manually marked as finished
+  uint32_t completedBooks = 0;       // Books marked finished or completed by reaching their final page
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
   uint32_t readingHistoryAnchorDay = 0;

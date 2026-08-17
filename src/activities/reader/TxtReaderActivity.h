@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "EndOfBookView.h"
 #include "ReadingSessionStats.h"
 #include "activities/Activity.h"
 
@@ -35,6 +36,9 @@ class TxtReaderActivity final : public Activity {
   int lastSavedProgressPage = -1;
   unsigned long lastProgressSaveMs = 0;
   ReadingSessionStats readingStats;
+  EndOfBookView endOfBookView;
+
+  void prepareEndOfBook();
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
   int cachedFontId = 0;

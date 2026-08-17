@@ -24,5 +24,8 @@ class ReadingSessionStats {
   void begin(const std::string& cachePath);
   void pageShown();
   void pageTurn(bool forwardPage);
+  // Marks a book complete at the real final page and returns totals including
+  // this still-open session, for the completion screen.
+  BookReadingStats completeAndSnapshot(const std::string& cachePath);
   void finish(const std::string& cachePath);
 };

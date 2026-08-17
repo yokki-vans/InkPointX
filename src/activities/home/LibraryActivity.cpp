@@ -69,6 +69,23 @@ bool writeSpoolString(HalFile& file, const std::string_view value) {
   return value.empty() || writeAll(file, value.data(), value.size());
 }
 
+bool readIndexString(HalFile& file, const uint32_t poolStart, const uint32_t poolBytes, const uint32_t offset,
+                     const size_t maxBytes, std::string& output) {
+  output.clear();
+  if (offset >= poolBytes || !file.seek(poolStart + offset)) return false;
+  const size_t available = std::min<size_t>(poolBytes - offset, maxBytes + 1);
+  output.reserve(std::min<size_t>(available, 96));
+  for (size_t i = 0; i < available; ++i) {
+    char value = 0;
+    if (file.read(&value, 1) != 1) return false;
+    if (value == '\0') return true;
+    if (i == maxBytes) break;
+    output.push_back(value);
+  }
+  output.clear();
+  return false;
+}
+
 bool isSupportedBook(const std::string_view filename) {
   return FsHelpers::hasEpubExtension(filename) || FsHelpers::hasFb2Extension(filename) ||
          FsHelpers::hasPdfExtension(filename);
@@ -318,6 +335,44 @@ bool LibraryActivity::loadIndex() {
   }
   pendingTruncatedWarning = header.truncated != 0;
   return true;
+}
+
+void LibraryActivity::appendRecommendationCandidates(std::vector<RecentBook>& output, const std::string& excludedPath,
+                                                     const size_t maxCount) {
+  if (output.size() >= maxCount || maxCount == 0) return;
+
+  HalFile file;
+  if (!Storage.openFileForRead("LIBREC", INDEX_PATH, file)) return;
+  LibraryIndexHeader header{};
+  if (file.read(&header, sizeof(header)) != static_cast<int>(sizeof(header)) ||
+      memcmp(header.magic, LIBRARY_INDEX_MAGIC, sizeof(header.magic)) != 0 || header.version != LIBRARY_INDEX_VERSION ||
+      header.recordSize != sizeof(LibraryDiskEntry) || header.bookCount == 0 || header.bookCount > MAX_LIBRARY_BOOKS ||
+      header.poolBytes > MAX_STRING_POOL_BYTES) {
+    return;
+  }
+
+  const uint32_t poolStart = sizeof(LibraryIndexHeader) + header.bookCount * sizeof(LibraryDiskEntry);
+  uint32_t hash = fnv1aUpdate(2166136261u, excludedPath.data(), excludedPath.size());
+  const size_t start = hash % header.bookCount;
+  const size_t attempts = std::min<size_t>(header.bookCount, 96);
+  std::string path;
+  std::string title;
+  std::string author;
+  for (size_t step = 0; step < attempts && output.size() < maxCount; ++step) {
+    if ((step & 0x0F) == 0x0F) yield();
+    const size_t index = (start + step) % header.bookCount;
+    if (!file.seek(sizeof(LibraryIndexHeader) + index * sizeof(LibraryDiskEntry))) break;
+    LibraryDiskEntry disk{};
+    if (file.read(&disk, sizeof(disk)) != static_cast<int>(sizeof(disk))) break;
+    if (!readIndexString(file, poolStart, header.poolBytes, disk.pathOffset, 767, path) || path == excludedPath ||
+        !Storage.exists(path.c_str())) {
+      continue;
+    }
+    if (std::any_of(output.begin(), output.end(), [&](const RecentBook& item) { return item.path == path; })) continue;
+    if (!readIndexString(file, poolStart, header.poolBytes, disk.titleOffset, 255, title)) title.clear();
+    if (!readIndexString(file, poolStart, header.poolBytes, disk.authorOffset, 191, author)) author.clear();
+    output.push_back(RecentBook{path, title.empty() ? displayTitleFromPath(path) : title, author, {}});
+  }
 }
 
 bool LibraryActivity::saveIndex(const bool truncated) const {

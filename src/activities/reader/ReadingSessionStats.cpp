@@ -46,6 +46,27 @@ void ReadingSessionStats::collectCurrentPage(const bool forwardPage) {
 
 void ReadingSessionStats::pageTurn(const bool forwardPage) { collectCurrentPage(forwardPage); }
 
+BookReadingStats ReadingSessionStats::completeAndSnapshot(const std::string& cachePath) {
+  if (!started) return book;
+
+  if (!book.isCompleted) {
+    book.isCompleted = true;
+    global.completedBooks = addSaturated(global.completedBooks, 1);
+    if (!book.finishedDateManual && !book.finishedDate.isValid()) {
+      ReadingStatsDateTime now;
+      if (getCurrentLocalReadingStatsDateTime(now)) book.finishedDate = now.date;
+    }
+    book.estimatedTimeLeftSeconds = 0;
+    book.save(cachePath);
+    global.save();
+    ACHIEVEMENTS.refresh(global);
+  }
+
+  BookReadingStats snapshot = book;
+  snapshot.totalReadingSeconds = addSaturated(snapshot.totalReadingSeconds, sessionSeconds);
+  return snapshot;
+}
+
 void ReadingSessionStats::finish(const std::string& cachePath) {
   if (!started) return;
   collectCurrentPage(false);

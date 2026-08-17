@@ -90,7 +90,37 @@ void XtcReaderActivity::onExit() {
   xtc.reset();
 }
 
+void XtcReaderActivity::prepareEndOfBook() {
+  if (!xtc || endOfBookView.isPrepared()) return;
+  const BookReadingStats snapshot = readingStats.completeAndSnapshot(xtc->getCachePath());
+  endOfBookView.prepare(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), snapshot);
+}
+
 void XtcReaderActivity::loop() {
+  if (xtc && currentPage >= xtc->getPageCount()) {
+    prepareEndOfBook();
+    switch (endOfBookView.handleInput(mappedInput)) {
+      case EndOfBookView::Action::Home:
+        onGoHome();
+        break;
+      case EndOfBookView::Action::FileBrowser:
+        activityManager.goToFileBrowser(xtc->getPath());
+        break;
+      case EndOfBookView::Action::OpenRecommendation:
+        onSelectBook(endOfBookView.selectedPath());
+        break;
+      case EndOfBookView::Action::OpenLibrary:
+        activityManager.goToLibrary();
+        break;
+      case EndOfBookView::Action::SelectionChanged:
+        requestUpdate();
+        break;
+      case EndOfBookView::Action::None:
+        break;
+    }
+    return;
+  }
+
   // Enter chapter selection activity
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (xtc && xtc->hasChapters() && !xtc->getChapters().empty()) {
@@ -124,17 +154,6 @@ void XtcReaderActivity::loop() {
 
   readingStats.pageTurn(nextTriggered);
 
-  // At end of the book, forward button goes home and back button returns to last page
-  if (currentPage >= xtc->getPageCount()) {
-    if (nextTriggered) {
-      onGoHome();
-    } else {
-      currentPage = xtc->getPageCount() - 1;
-      requestUpdate();
-    }
-    return;
-  }
-
   const bool skipPages = !fromTilt && SETTINGS.longPressButtonBehavior == SETTINGS.CHAPTER_SKIP &&
                          mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
   const int skipAmount = skipPages ? 10 : 1;
@@ -150,6 +169,7 @@ void XtcReaderActivity::loop() {
     currentPage += skipAmount;
     if (currentPage >= xtc->getPageCount()) {
       currentPage = xtc->getPageCount();  // Allow showing "End of book"
+      prepareEndOfBook();
     }
     requestUpdate();
   }
@@ -162,13 +182,8 @@ void XtcReaderActivity::render(RenderLock&&) {
 
   // Bounds check
   if (currentPage >= xtc->getPageCount()) {
-    // Show end of book screen
-    renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
-    // Same legend as the EPUB end screen: forward leaves the book, back
-    // returns to the last page — say so.
-    const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    prepareEndOfBook();
+    endOfBookView.render(renderer, mappedInput);
     renderer.displayBuffer();
     return;
   }

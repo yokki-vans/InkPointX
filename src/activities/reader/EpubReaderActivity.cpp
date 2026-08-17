@@ -311,6 +311,27 @@ void EpubReaderActivity::onExit() {
   }
 }
 
+void EpubReaderActivity::prepareEndOfBook() {
+  if (!epub || endOfBookView.isPrepared()) return;
+
+  if (!stats.isCompleted) {
+    stats.isCompleted = true;
+    globalStats.completedBooks = addSaturatedUint32(globalStats.completedBooks, 1);
+    if (!stats.finishedDateManual && !stats.finishedDate.isValid()) {
+      ReadingStatsDateTime now;
+      if (getCurrentLocalReadingStatsDateTime(now)) stats.finishedDate = now.date;
+    }
+    stats.estimatedTimeLeftSeconds = 0;
+    stats.save(epub->getCachePath());
+    globalStats.save();
+    ACHIEVEMENTS.refresh(globalStats);
+  }
+
+  BookReadingStats snapshot = stats;
+  snapshot.totalReadingSeconds = addSaturatedUint32(snapshot.totalReadingSeconds, sessionReadingSeconds);
+  endOfBookView.prepare(epub->getPath(), epub->getTitle(), epub->getAuthor(), snapshot);
+}
+
 void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
@@ -345,6 +366,31 @@ void EpubReaderActivity::loop() {
     pendingReadFolderMove = SETTINGS.moveFinishedToReadFolder && !isInReadFolder(epub->getPath());
   } else {
     pendingReadFolderMove = false;
+  }
+
+  if (atEndOfBook) {
+    prepareEndOfBook();
+    automaticPageTurnActive = false;
+    switch (endOfBookView.handleInput(mappedInput)) {
+      case EndOfBookView::Action::Home:
+        onGoHome();
+        break;
+      case EndOfBookView::Action::FileBrowser:
+        activityManager.goToFileBrowser(epub->getPath());
+        break;
+      case EndOfBookView::Action::OpenRecommendation:
+        onSelectBook(endOfBookView.selectedPath());
+        break;
+      case EndOfBookView::Action::OpenLibrary:
+        activityManager.goToLibrary();
+        break;
+      case EndOfBookView::Action::SelectionChanged:
+        requestUpdate();
+        break;
+      case EndOfBookView::Action::None:
+        break;
+    }
+    return;
   }
 
   if (automaticPageTurnActive) {
@@ -1242,12 +1288,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   // Show end of book screen
   if (currentSpineIndex == epub->getSpineItemsCount()) {
-    renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
-    // Not a reading page, so the no-legend rule does not apply — and one of
-    // these buttons silently leaves the book, which deserves a warning.
-    const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    prepareEndOfBook();
+    endOfBookView.render(renderer, mappedInput);
     renderer.displayBuffer();
     automaticPageTurnActive = false;
     showPendingSyncSaveError();

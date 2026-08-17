@@ -10,7 +10,7 @@ struct BookReadingStats {
   uint16_t sessionCount = 0;              // Total times this book was opened
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
   uint32_t totalPagesTurned = 0;          // Total forward page turns after the dwell threshold
-  bool isCompleted = false;               // Whether the user manually marked this book as finished
+  bool isCompleted = false;               // Whether the user marked or actually reached the end of this book
   uint16_t avgSecondsPerForwardPage = 0;  // Running average pace for time-left estimates
   uint16_t paceSampleCount = 0;           // Number of forward-page pace samples included in the average
   uint32_t estimatedTimeLeftSeconds = 0;  // Last live reader book time-left estimate; 0 means unavailable

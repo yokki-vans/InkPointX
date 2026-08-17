@@ -12,6 +12,7 @@
 #include <string>
 #include <utility>
 
+#include "EndOfBookView.h"
 #include "ReadingSessionStats.h"
 #include "activities/Activity.h"
 
@@ -21,6 +22,9 @@ class XtcReaderActivity final : public Activity {
   uint32_t currentPage = 0;
   int pagesUntilFullRefresh = 0;
   ReadingSessionStats readingStats;
+  EndOfBookView endOfBookView;
+
+  void prepareEndOfBook();
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {
