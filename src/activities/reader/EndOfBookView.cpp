@@ -44,22 +44,6 @@ int drawCenteredWrapped(const GfxRenderer& renderer, const int font, const int x
   return lineY;
 }
 
-void drawCompletionMedallion(const GfxRenderer& renderer, const int x, const int y, const int size) {
-  const int radius = std::max(12, size / 4);
-  renderer.fillRoundedRect(x, y, size, size, radius, Color::White);
-  renderer.drawRoundedRect(x, y, size, size, 2, radius, true);
-  renderer.drawRoundedRect(x + 6, y + 6, size - 12, size - 12, 1, std::max(8, radius - 5), true);
-  renderer.drawIcon(LucideCheck24, x + (size - 24) / 2, y + (size - 24) / 2, 24, 24);
-}
-
-void drawMetric(const GfxRenderer& renderer, const Rect& rect, const char* value, const char* label) {
-  const std::string visibleValue = renderer.truncatedText(UI_12_FONT_ID, value, rect.width - 12, EpdFontFamily::BOLD);
-  const bool compact = rect.height <= 54;
-  drawCentered(renderer, UI_12_FONT_ID, rect.x, rect.width, rect.y + (compact ? 4 : 8), visibleValue.c_str(),
-               EpdFontFamily::BOLD);
-  const std::string visibleLabel = renderer.truncatedText(SMALL_FONT_ID, label, rect.width - 12);
-  drawCentered(renderer, SMALL_FONT_ID, rect.x, rect.width, rect.y + (compact ? 29 : 38), visibleLabel.c_str());
-}
 }  // namespace
 
 void EndOfBookView::addCandidate(const RecentBook& source, const std::string& currentPath) {
@@ -148,82 +132,72 @@ void EndOfBookView::render(GfxRenderer& renderer, MappedInputManager& mappedInpu
 
   renderer.clearScreen();
 
-  const int titleY = compact ? 8 : 18;
-  drawCentered(renderer, SCRIPT_FONT_ID, margin, innerWidth, titleY, tr(STR_END_OF_BOOK));
+  int cursorY = compact ? 8 : 20;
+  drawCentered(renderer, SCRIPT_SMALL_FONT_ID, margin, innerWidth, cursorY, tr(STR_END_OF_BOOK));
+  cursorY += renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) + (compact ? 8 : 14);
 
-  const int medallionSize = compact ? 52 : 66;
-  const int medallionY = compact ? 52 : 66;
-  drawCompletionMedallion(renderer, (width - medallionSize) / 2, medallionY, medallionSize);
-
-  const int bookTitleY = medallionY + medallionSize + (compact ? 8 : 13);
-  const int titleFont = compact ? UI_10_FONT_ID : UI_12_FONT_ID;
-  int afterTitle = drawCenteredWrapped(renderer, titleFont, margin + 10, innerWidth - 20, bookTitleY,
-                                       finishedTitle.c_str(), compact ? 1 : 2, EpdFontFamily::BOLD);
-  if (!finishedAuthor.empty() && !compact) {
-    const std::string author = renderer.truncatedText(SMALL_FONT_ID, finishedAuthor.c_str(), innerWidth - 36);
-    drawCentered(renderer, SMALL_FONT_ID, margin + 18, innerWidth - 36, afterTitle + 2, author.c_str());
-    afterTitle += renderer.getLineHeight(SMALL_FONT_ID) + 2;
+  cursorY = drawCenteredWrapped(renderer, UI_10_FONT_ID, margin + 14, innerWidth - 28, cursorY,
+                                finishedTitle.c_str(), compact ? 1 : 2, EpdFontFamily::BOLD);
+  if (!finishedAuthor.empty()) {
+    cursorY += compact ? 0 : 2;
+    const std::string author = renderer.truncatedText(SMALL_FONT_ID, finishedAuthor.c_str(), innerWidth - 48);
+    drawCentered(renderer, SMALL_FONT_ID, margin + 24, innerWidth - 48, cursorY, author.c_str());
+    cursorY += renderer.getLineHeight(SMALL_FONT_ID);
   }
 
   char duration[32];
   BookReadingStats::formatDuration(readingSeconds, duration, sizeof(duration));
-  const int statsY = std::max(afterTitle + (compact ? 5 : 8), compact ? 158 : 232);
-  const int statsHeight = compact ? 52 : 64;
-  const Rect statsCard{margin, statsY, innerWidth, statsHeight};
-  renderer.drawRoundedRect(statsCard.x, statsCard.y, statsCard.width, statsCard.height, 1, 14, true);
-  renderer.drawLine(width / 2, statsCard.y + 9, width / 2, statsCard.y + statsCard.height - 10, true);
-  drawMetric(renderer, Rect{statsCard.x, statsCard.y, statsCard.width / 2, statsCard.height}, "100%", tr(STR_DONE));
-  drawMetric(
-      renderer,
-      Rect{statsCard.x + statsCard.width / 2, statsCard.y, statsCard.width - statsCard.width / 2, statsCard.height},
-      duration, tr(STR_READING_TIME));
+  const std::string summary = std::string("100% · ") + duration;
+  cursorY += compact ? 5 : 9;
+  drawCentered(renderer, SMALL_FONT_ID, margin, innerWidth, cursorY, summary.c_str(), EpdFontFamily::BOLD);
+  cursorY += renderer.getLineHeight(SMALL_FONT_ID) + (compact ? 8 : 13);
 
-  const int sectionY = statsY + statsHeight + (compact ? 8 : 15);
-  drawCentered(renderer, UI_10_FONT_ID, margin, innerWidth, sectionY, tr(STR_NEXT_FIELD), EpdFontFamily::BOLD);
-  const int rowsTop = sectionY + renderer.getLineHeight(UI_10_FONT_ID) + (compact ? 3 : 8);
+  renderer.drawLine(margin + 8, cursorY, width - margin - 8, cursorY, true);
+  cursorY += compact ? 8 : 12;
+  drawCentered(renderer, SMALL_FONT_ID, margin, innerWidth, cursorY, tr(STR_NEXT_FIELD), EpdFontFamily::BOLD);
+  const int rowsTop = cursorY + renderer.getLineHeight(SMALL_FONT_ID) + (compact ? 4 : 8);
 
   if (recommendations.empty()) {
-    const Rect empty{margin, rowsTop, innerWidth, std::max(52, contentBottom - rowsTop - 8)};
-    renderer.drawRoundedRect(empty.x, empty.y, empty.width, empty.height, 1, 14, true);
-    drawCenteredWrapped(renderer, UI_10_FONT_ID, empty.x + 18, empty.width - 36,
-                        empty.y + std::max(8, (empty.height - renderer.getLineHeight(UI_10_FONT_ID) * 2) / 2),
+    const int emptyHeight = std::max(42, contentBottom - rowsTop - 8);
+    drawCenteredWrapped(renderer, SMALL_FONT_ID, margin + 28, innerWidth - 56,
+                        rowsTop + std::max(8, (emptyHeight - renderer.getLineHeight(SMALL_FONT_ID) * 2) / 3),
                         tr(STR_OPEN_LIBRARY_HINT), 2);
   } else {
-    const int gap = compact ? 5 : 8;
-    const int available = std::max(1, contentBottom - rowsTop - gap * (static_cast<int>(recommendations.size()) - 1));
-    const int rowHeight =
-        std::clamp(available / static_cast<int>(recommendations.size()), compact ? 46 : 62, compact ? 58 : 78);
-    const int blockHeight =
-        rowHeight * static_cast<int>(recommendations.size()) + gap * (static_cast<int>(recommendations.size()) - 1);
-    const int firstRowY = rowsTop + std::max(0, (contentBottom - rowsTop - blockHeight) / 2);
+    const int count = static_cast<int>(recommendations.size());
+    const int available = std::max(1, contentBottom - rowsTop);
+    const int rowHeight = std::clamp(available / count, compact ? 44 : 58, compact ? 54 : 70);
     for (size_t i = 0; i < recommendations.size(); ++i) {
       const bool selected = i == selectedIndex;
-      const int y = firstRowY + static_cast<int>(i) * (rowHeight + gap);
+      const int y = rowsTop + static_cast<int>(i) * rowHeight;
       const Rect row{margin, y, innerWidth, rowHeight};
-      renderer.fillRoundedRect(row.x, row.y, row.width, row.height, 12, Color::White);
-      renderer.drawRoundedRect(row.x, row.y, row.width, row.height, selected ? 2 : 1, 12, true);
-      if (selected) renderer.fillRoundedRect(row.x + 8, row.y + 10, 4, row.height - 20, 2, Color::Black);
+      if (selected) {
+        renderer.drawRoundedRect(row.x, row.y + 2, row.width, row.height - 4, 1, 10, true);
+        renderer.fillRoundedRect(row.x + 7, row.y + 11, 3, row.height - 22, 2, Color::Black);
+      } else if (i > 0 && i - 1 != selectedIndex) {
+        renderer.drawLine(row.x + 18, row.y, row.x + row.width - 18, row.y, true);
+      }
 
       const int iconSize = 32;
-      const int iconX = row.x + 20;
+      const int iconX = row.x + 18;
       const int iconY = row.y + (row.height - iconSize) / 2;
       renderer.drawIcon(LucideBookOpen32, iconX, iconY, iconSize, iconSize);
-      const int chevronX = row.x + row.width - 34;
+      const int chevronX = row.x + row.width - 32;
       renderer.drawIcon(LucideChevronRight24, chevronX, row.y + (row.height - 24) / 2, 24, 24);
 
-      const int textX = iconX + iconSize + 12;
+      const int textX = iconX + iconSize + 10;
       const int textWidth = chevronX - textX - 8;
       const std::string title =
-          renderer.truncatedText(UI_10_FONT_ID, recommendations[i].title.c_str(), textWidth, EpdFontFamily::BOLD);
+          renderer.truncatedText(SMALL_FONT_ID, recommendations[i].title.c_str(), textWidth, EpdFontFamily::BOLD);
       const int titleTextY = recommendations[i].author.empty()
-                                 ? row.y + (row.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2
-                                 : row.y + std::max(7, (row.height - renderer.getLineHeight(UI_10_FONT_ID) -
-                                                        renderer.getLineHeight(SMALL_FONT_ID) - 2) /
+                                 ? row.y + (row.height - renderer.getLineHeight(SMALL_FONT_ID)) / 2
+                                 : row.y + std::max(5, (row.height - renderer.getLineHeight(SMALL_FONT_ID) -
+                                                        renderer.getLineHeight(MICRO_FONT_ID) - 1) /
                                                            2);
-      renderer.drawText(UI_10_FONT_ID, textX, titleTextY, title.c_str(), true, EpdFontFamily::BOLD);
+      renderer.drawText(SMALL_FONT_ID, textX, titleTextY, title.c_str(), true, EpdFontFamily::BOLD);
       if (!recommendations[i].author.empty()) {
-        const std::string author = renderer.truncatedText(SMALL_FONT_ID, recommendations[i].author.c_str(), textWidth);
-        renderer.drawText(SMALL_FONT_ID, textX, titleTextY + renderer.getLineHeight(UI_10_FONT_ID) + 2, author.c_str());
+        const std::string author = renderer.truncatedText(MICRO_FONT_ID, recommendations[i].author.c_str(), textWidth);
+        renderer.drawText(MICRO_FONT_ID, textX, titleTextY + renderer.getLineHeight(SMALL_FONT_ID) + 1,
+                          author.c_str());
       }
     }
   }

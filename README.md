@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.21" src="https://img.shields.io/badge/version-2.2.21-000000">
+  <img alt="Version 2.2.22" src="https://img.shields.io/badge/version-2.2.22-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,11 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **A calmer end-of-book screen in 2.2.22.** The completion experience now uses a restrained, content-driven
+  layout: a smaller accent heading, compact finished-book details, one concise progress-and-reading-time line, and a
+  lightweight next-read list. Heavy nested cards and the oversized completion medallion are gone; only the currently
+  selected recommendation receives a focus outline, while adaptive spacing keeps long titles aligned on both X3 and
+  X4.
 - **A rewarding finish and smart next reads in 2.2.21.** Reaching the final page now opens a polished completion
   screen with the finished title, author, 100% state, and accumulated reading time. Up to three available unread
   books are suggested from favourites, recent activity, and the cached library catalogue without rescanning the SD
