@@ -1,10 +1,19 @@
 #include "EndOfBookView.h"
 
+#include <Bitmap.h>
+#include <Epub.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Txt.h>
+#include <Xtc.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
+#include <new>
 #include <utility>
 
 #include "FavoriteBooksStore.h"
@@ -44,6 +53,181 @@ int drawCenteredWrapped(const GfxRenderer& renderer, const int font, const int x
   return lineY;
 }
 
+bool isUsableBitmap(const std::string& path, int* height = nullptr) {
+  if (path.empty() || !Storage.exists(path.c_str())) return false;
+  HalFile file;
+  if (!Storage.openFileForRead("ENDCOVER", path, file)) return false;
+  Bitmap bitmap(file);
+  const bool usable = bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() > 0 && bitmap.getHeight() > 0;
+  if (usable && height) *height = bitmap.getHeight();
+  file.close();
+  return usable;
+}
+
+std::string findCachedThumbnail(const std::string& cachePath, const int preferredHeight) {
+  if (cachePath.empty()) return {};
+  HalFile directory = Storage.open(cachePath.c_str());
+  if (!directory || !directory.isDirectory()) {
+    if (directory) directory.close();
+    return {};
+  }
+
+  std::string bestPath;
+  int bestDistance = std::numeric_limits<int>::max();
+  char name[192];
+  for (HalFile entry = directory.openNextFile(); entry; entry = directory.openNextFile()) {
+    if (entry.isDirectory()) {
+      entry.close();
+      continue;
+    }
+    entry.getName(name, sizeof(name));
+    entry.close();
+    std::string filename(name);
+    const size_t slash = filename.find_last_of('/');
+    if (slash != std::string::npos) filename.erase(0, slash + 1);
+    if (filename.rfind("thumb_", 0) != 0 || filename.size() < 11 ||
+        filename.compare(filename.size() - 4, 4, ".bmp") != 0) {
+      continue;
+    }
+    const std::string candidate = cachePath + "/" + filename;
+    int height = 0;
+    if (!isUsableBitmap(candidate, &height)) continue;
+    const int distance = std::abs(height - preferredHeight);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestPath = candidate;
+    }
+  }
+  directory.close();
+  return bestPath;
+}
+
+std::string resolveCoverPath(const std::string& bookPath, const std::string& coverTemplate, const int preferredHeight) {
+  const std::array<int, 5> heights = {preferredHeight, 402, 300, 226, 540};
+  if (!coverTemplate.empty()) {
+    for (const int height : heights) {
+      const std::string candidate = UITheme::getCoverThumbPath(coverTemplate, height);
+      if (isUsableBitmap(candidate)) return candidate;
+    }
+    if (isUsableBitmap(coverTemplate)) return coverTemplate;
+  }
+
+  const std::string cachePath = getBookCachePath(bookPath);
+  if (cachePath.empty()) return {};
+  for (const int height : heights) {
+    const std::string candidate = cachePath + "/thumb_" + std::to_string(height) + ".bmp";
+    if (isUsableBitmap(candidate)) return candidate;
+  }
+  const std::string cachedThumbnail = findCachedThumbnail(cachePath, preferredHeight);
+  if (!cachedThumbnail.empty()) return cachedThumbnail;
+  const std::array<std::string, 2> fullCovers = {cachePath + "/cover.bmp", cachePath + "/cover_crop.bmp"};
+  const auto cover =
+      std::find_if(fullCovers.begin(), fullCovers.end(), [](const std::string& path) { return isUsableBitmap(path); });
+  return cover == fullCovers.end() ? std::string{} : *cover;
+}
+
+std::string prepareCoverPath(const std::string& bookPath, const std::string& coverTemplate, const int preferredHeight) {
+  std::string cover = resolveCoverPath(bookPath, coverTemplate, preferredHeight);
+  if (!cover.empty()) return cover;
+
+  // Generate only from an existing book index. Building a missing index here
+  // would turn a celebratory screen into a long blocking operation.
+  if (FsHelpers::hasEpubExtension(bookPath) || FsHelpers::hasFb2Extension(bookPath) ||
+      FsHelpers::hasPdfExtension(bookPath)) {
+    Epub epub(bookPath, "/.crosspoint");
+    if (epub.load(false, true)) {
+      const std::string target = epub.getThumbBmpPath(preferredHeight);
+      if (Storage.exists(target.c_str()) && !isUsableBitmap(target)) Storage.remove(target.c_str());
+      if (epub.generateThumbBmp(preferredHeight) && isUsableBitmap(target)) return target;
+    }
+  } else if (FsHelpers::hasXtcExtension(bookPath)) {
+    Xtc xtc(bookPath, "/.crosspoint");
+    if (xtc.load()) {
+      const std::string target = xtc.getThumbBmpPath(preferredHeight);
+      if (Storage.exists(target.c_str()) && !isUsableBitmap(target)) Storage.remove(target.c_str());
+      if (xtc.generateThumbBmp(preferredHeight) && isUsableBitmap(target)) return target;
+    }
+  } else if (FsHelpers::hasTxtExtension(bookPath) || FsHelpers::hasMarkdownExtension(bookPath)) {
+    Txt txt(bookPath, "/.crosspoint");
+    if (txt.load() && txt.generateCoverBmp() && isUsableBitmap(txt.getCoverBmpPath())) return txt.getCoverBmpPath();
+  }
+  return {};
+}
+
+bool restoreCoverTile(const GfxRenderer& renderer, const Rect& slot, EndOfBookView::CoverTileCache& cache) {
+  return cache.data && cache.size > 0 && cache.x == slot.x && cache.y == slot.y && cache.width == slot.width &&
+         cache.height == slot.height &&
+         renderer.copyBufferToRegion(slot.x, slot.y, slot.width, slot.height, cache.data.get(), cache.size);
+}
+
+void saveCoverTile(const GfxRenderer& renderer, const Rect& slot, EndOfBookView::CoverTileCache& cache) {
+  const size_t size = renderer.getRegionByteSize(slot.x, slot.y, slot.width, slot.height);
+  if (size == 0) return;
+  if (!cache.data || cache.size != size) {
+    cache.data.reset(new (std::nothrow) uint8_t[size]);
+    cache.size = cache.data ? size : 0;
+  }
+  if (!cache.data ||
+      !renderer.copyRegionToBuffer(slot.x, slot.y, slot.width, slot.height, cache.data.get(), cache.size)) {
+    cache.data.reset();
+    cache.size = 0;
+    return;
+  }
+  cache.x = slot.x;
+  cache.y = slot.y;
+  cache.width = slot.width;
+  cache.height = slot.height;
+}
+
+void drawCoverTile(const GfxRenderer& renderer, const Rect& slot, const std::string& coverPath,
+                   EndOfBookView::CoverTileCache& cache, const int radius) {
+  if (restoreCoverTile(renderer, slot, cache)) return;
+
+  renderer.fillRoundedRect(slot.x, slot.y, slot.width, slot.height, radius, Color::White);
+  bool drawn = false;
+  if (!coverPath.empty()) {
+    HalFile file;
+    if (Storage.openFileForRead("ENDCOVER", coverPath, file)) {
+      Bitmap bitmap(file);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() > 0 && bitmap.getHeight() > 0) {
+        float scale = std::min(static_cast<float>(slot.width) / bitmap.getWidth(),
+                               static_cast<float>(slot.height) / bitmap.getHeight());
+        if (!bitmap.is1Bit()) scale = std::min(1.0f, scale);
+        const int coverWidth = std::max(1, static_cast<int>(std::round(bitmap.getWidth() * scale)));
+        const int coverHeight = std::max(1, static_cast<int>(std::round(bitmap.getHeight() * scale)));
+        const int coverX = slot.x + (slot.width - coverWidth) / 2;
+        const int coverY = slot.y + (slot.height - coverHeight) / 2;
+        renderer.fillRect(coverX, coverY, coverWidth, coverHeight, false);
+        if (bitmap.is1Bit()) {
+          renderer.drawBitmap1Bit(bitmap, coverX, coverY, coverWidth, coverHeight, true);
+        } else {
+          renderer.drawBitmap(bitmap, coverX, coverY, coverWidth, coverHeight);
+        }
+        renderer.maskRoundedRectOutsideCorners(coverX, coverY, coverWidth, coverHeight, radius, Color::White);
+        renderer.drawRoundedRect(coverX, coverY, coverWidth, coverHeight, 1, radius, true);
+        drawn = true;
+      }
+      file.close();
+    }
+  }
+
+  if (!drawn) {
+    renderer.drawRoundedRect(slot.x, slot.y, slot.width, slot.height, 1, radius, true);
+    const int bandHeight = std::max(14, slot.height / 4);
+    renderer.fillRect(slot.x + 1, slot.y + 1, slot.width - 2, bandHeight, true);
+    renderer.maskRoundedRectOutsideCorners(slot.x, slot.y, slot.width, slot.height, radius, Color::White);
+    const int centerX = slot.x + slot.width / 2;
+    const int firstLineY = slot.y + bandHeight + std::max(12, slot.height / 5);
+    const int longLine = std::max(18, slot.width * 3 / 5);
+    const int shortLine = std::max(14, slot.width * 2 / 5);
+    renderer.drawLine(centerX - longLine / 2, firstLineY, centerX + longLine / 2, firstLineY, true);
+    renderer.drawLine(centerX - shortLine / 2, firstLineY + 8, centerX + shortLine / 2, firstLineY + 8, true);
+    renderer.drawLine(centerX - longLine / 2, firstLineY + 16, centerX + longLine / 2, firstLineY + 16, true);
+    renderer.drawRoundedRect(slot.x, slot.y, slot.width, slot.height, 1, radius, true);
+  }
+  saveCoverTile(renderer, slot, cache);
+}
+
 }  // namespace
 
 void EndOfBookView::addCandidate(const RecentBook& source, const std::string& currentPath) {
@@ -61,6 +245,7 @@ void EndOfBookView::addCandidate(const RecentBook& source, const std::string& cu
 
   RecentBook candidate = source;
   if (candidate.title.empty()) candidate.title = titleFromPath(candidate.path);
+  candidate.coverBmpPath = prepareCoverPath(candidate.path, candidate.coverBmpPath, 112);
   recommendations.push_back(std::move(candidate));
 }
 
@@ -70,15 +255,27 @@ void EndOfBookView::prepare(const std::string& currentPath, const std::string& t
   prepared = true;
   finishedTitle = title.empty() ? titleFromPath(currentPath) : title;
   finishedAuthor = author;
+  finishedCoverPath.clear();
   readingSeconds = stats.totalReadingSeconds;
   selectedIndex = 0;
   recommendations.clear();
   recommendations.reserve(MAX_RECOMMENDATIONS);
+  finishedCoverCache = {};
+  recommendationCoverCaches.clear();
+  recommendationCoverCaches.resize(MAX_RECOMMENDATIONS);
 
   // A recently touched favourite is the strongest local signal available on
   // an offline reader.  Then use the remaining favourites and recent books.
   const auto& recent = RECENT_BOOKS.getBooks();
   const auto& favourites = FAVORITE_BOOKS.getBooks();
+  const auto recentCurrent =
+      std::find_if(recent.begin(), recent.end(), [&](const RecentBook& book) { return book.path == currentPath; });
+  const auto favouriteCurrent = std::find_if(favourites.begin(), favourites.end(),
+                                             [&](const RecentBook& book) { return book.path == currentPath; });
+  const std::string currentCoverTemplate = recentCurrent != recent.end()          ? recentCurrent->coverBmpPath
+                                           : favouriteCurrent != favourites.end() ? favouriteCurrent->coverBmpPath
+                                                                                  : std::string{};
+  finishedCoverPath = prepareCoverPath(currentPath, currentCoverTemplate, 180);
   for (const auto& book : recent) {
     if (FAVORITE_BOOKS.contains(book.path)) addCandidate(book, currentPath);
   }
@@ -132,30 +329,43 @@ void EndOfBookView::render(GfxRenderer& renderer, MappedInputManager& mappedInpu
 
   renderer.clearScreen();
 
-  int cursorY = compact ? 8 : 20;
-  drawCentered(renderer, SCRIPT_SMALL_FONT_ID, margin, innerWidth, cursorY, tr(STR_END_OF_BOOK));
-  cursorY += renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) + (compact ? 8 : 14);
+  const int headerY = compact ? 6 : 12;
+  drawCentered(renderer, SCRIPT_SMALL_FONT_ID, margin, innerWidth, headerY, tr(STR_END_OF_BOOK));
 
-  cursorY = drawCenteredWrapped(renderer, UI_10_FONT_ID, margin + 14, innerWidth - 28, cursorY,
-                                finishedTitle.c_str(), compact ? 1 : 2, EpdFontFamily::BOLD);
+  const int heroTop = headerY + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) + (compact ? 7 : 10);
+  const int heroHeight = compact ? 154 : 180;
+  const int heroCoverWidth = heroHeight * 2 / 3;
+  const Rect heroCover{margin + 6, heroTop, heroCoverWidth, heroHeight};
+  drawCoverTile(renderer, heroCover, finishedCoverPath, finishedCoverCache, 10);
+
+  const int detailsX = heroCover.x + heroCover.width + 16;
+  const int detailsWidth = width - margin - 6 - detailsX;
+  int detailsY = heroTop + 3;
+  detailsY = drawCenteredWrapped(renderer, UI_10_FONT_ID, detailsX, detailsWidth, detailsY, finishedTitle.c_str(),
+                                 compact ? 2 : 3, EpdFontFamily::BOLD);
   if (!finishedAuthor.empty()) {
-    cursorY += compact ? 0 : 2;
-    const std::string author = renderer.truncatedText(SMALL_FONT_ID, finishedAuthor.c_str(), innerWidth - 48);
-    drawCentered(renderer, SMALL_FONT_ID, margin + 24, innerWidth - 48, cursorY, author.c_str());
-    cursorY += renderer.getLineHeight(SMALL_FONT_ID);
+    detailsY += 3;
+    const auto authorLines = renderer.wrappedText(SMALL_FONT_ID, finishedAuthor.c_str(), detailsWidth, 2);
+    for (const auto& line : authorLines) {
+      drawCentered(renderer, SMALL_FONT_ID, detailsX, detailsWidth, detailsY, line.c_str());
+      detailsY += renderer.getLineHeight(SMALL_FONT_ID);
+    }
   }
 
   char duration[32];
   BookReadingStats::formatDuration(readingSeconds, duration, sizeof(duration));
   const std::string summary = std::string("100% · ") + duration;
-  cursorY += compact ? 5 : 9;
-  drawCentered(renderer, SMALL_FONT_ID, margin, innerWidth, cursorY, summary.c_str(), EpdFontFamily::BOLD);
-  cursorY += renderer.getLineHeight(SMALL_FONT_ID) + (compact ? 8 : 13);
+  const int summaryY = std::max(detailsY + 8, heroTop + heroHeight - renderer.getLineHeight(SMALL_FONT_ID) - 5);
+  drawCentered(renderer, SMALL_FONT_ID, detailsX, detailsWidth, summaryY, summary.c_str(), EpdFontFamily::BOLD);
 
-  renderer.drawLine(margin + 8, cursorY, width - margin - 8, cursorY, true);
-  cursorY += compact ? 8 : 12;
-  drawCentered(renderer, SMALL_FONT_ID, margin, innerWidth, cursorY, tr(STR_NEXT_FIELD), EpdFontFamily::BOLD);
-  const int rowsTop = cursorY + renderer.getLineHeight(SMALL_FONT_ID) + (compact ? 4 : 8);
+  const int sectionY = heroTop + heroHeight + (compact ? 12 : 17);
+  const int sectionTextWidth = renderer.getTextWidth(SCRIPT_SMALL_FONT_ID, tr(STR_NEXT_FIELD));
+  const int sectionTextX = (width - sectionTextWidth) / 2;
+  const int sectionLineY = sectionY + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) / 2;
+  renderer.drawLine(margin + 8, sectionLineY, sectionTextX - 12, sectionLineY, true);
+  renderer.drawText(SCRIPT_SMALL_FONT_ID, sectionTextX, sectionY, tr(STR_NEXT_FIELD));
+  renderer.drawLine(sectionTextX + sectionTextWidth + 12, sectionLineY, width - margin - 8, sectionLineY, true);
+  const int rowsTop = sectionY + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) + (compact ? 5 : 8);
 
   if (recommendations.empty()) {
     const int emptyHeight = std::max(42, contentBottom - rowsTop - 8);
@@ -165,39 +375,39 @@ void EndOfBookView::render(GfxRenderer& renderer, MappedInputManager& mappedInpu
   } else {
     const int count = static_cast<int>(recommendations.size());
     const int available = std::max(1, contentBottom - rowsTop);
-    const int rowHeight = std::clamp(available / count, compact ? 44 : 58, compact ? 54 : 70);
+    const int maxRowHeight = count == 1 ? 190 : count == 2 ? 170 : 158;
+    const int rowHeight = std::clamp(available / count, compact ? 94 : 112, compact ? maxRowHeight - 12 : maxRowHeight);
     for (size_t i = 0; i < recommendations.size(); ++i) {
       const bool selected = i == selectedIndex;
       const int y = rowsTop + static_cast<int>(i) * rowHeight;
       const Rect row{margin, y, innerWidth, rowHeight};
       if (selected) {
-        renderer.drawRoundedRect(row.x, row.y + 2, row.width, row.height - 4, 1, 10, true);
-        renderer.fillRoundedRect(row.x + 7, row.y + 11, 3, row.height - 22, 2, Color::Black);
+        GUI.drawSelection(renderer, Rect{row.x, row.y + 4, row.width, row.height - 8});
       } else if (i > 0 && i - 1 != selectedIndex) {
-        renderer.drawLine(row.x + 18, row.y, row.x + row.width - 18, row.y, true);
+        renderer.drawLine(row.x + 12, row.y, row.x + row.width - 12, row.y, true);
       }
 
-      const int iconSize = 32;
-      const int iconX = row.x + 18;
-      const int iconY = row.y + (row.height - iconSize) / 2;
-      renderer.drawIcon(LucideBookOpen32, iconX, iconY, iconSize, iconSize);
+      const int coverHeight = std::min(compact ? 94 : 112, row.height - 18);
+      const int coverWidth = std::max(42, coverHeight * 2 / 3);
+      const Rect cover{row.x + 14, row.y + (row.height - coverHeight) / 2, coverWidth, coverHeight};
+      drawCoverTile(renderer, cover, recommendations[i].coverBmpPath, recommendationCoverCaches[i], 6);
       const int chevronX = row.x + row.width - 32;
       renderer.drawIcon(LucideChevronRight24, chevronX, row.y + (row.height - 24) / 2, 24, 24);
 
-      const int textX = iconX + iconSize + 10;
+      const int textX = cover.x + cover.width + 13;
       const int textWidth = chevronX - textX - 8;
-      const std::string title =
-          renderer.truncatedText(SMALL_FONT_ID, recommendations[i].title.c_str(), textWidth, EpdFontFamily::BOLD);
+      const std::string title = renderer.truncatedText(UI_10_FONT_ID, recommendations[i].title.c_str(), textWidth,
+                                                       selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
       const int titleTextY = recommendations[i].author.empty()
-                                 ? row.y + (row.height - renderer.getLineHeight(SMALL_FONT_ID)) / 2
-                                 : row.y + std::max(5, (row.height - renderer.getLineHeight(SMALL_FONT_ID) -
+                                 ? row.y + (row.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2
+                                 : row.y + std::max(5, (row.height - renderer.getLineHeight(UI_10_FONT_ID) -
                                                         renderer.getLineHeight(MICRO_FONT_ID) - 1) /
                                                            2);
-      renderer.drawText(SMALL_FONT_ID, textX, titleTextY, title.c_str(), true, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, textX, titleTextY, title.c_str(), true,
+                        selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
       if (!recommendations[i].author.empty()) {
         const std::string author = renderer.truncatedText(MICRO_FONT_ID, recommendations[i].author.c_str(), textWidth);
-        renderer.drawText(MICRO_FONT_ID, textX, titleTextY + renderer.getLineHeight(SMALL_FONT_ID) + 1,
-                          author.c_str());
+        renderer.drawText(MICRO_FONT_ID, textX, titleTextY + renderer.getLineHeight(UI_10_FONT_ID) + 1, author.c_str());
       }
     }
   }

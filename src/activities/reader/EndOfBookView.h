@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -17,12 +18,26 @@ class MappedInputManager;
 class EndOfBookView {
   static constexpr size_t MAX_RECOMMENDATIONS = 3;
 
+ public:
+  struct CoverTileCache {
+    std::unique_ptr<uint8_t[]> data;
+    size_t size = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+  };
+
+ private:
   std::vector<RecentBook> recommendations;
   std::string finishedTitle;
   std::string finishedAuthor;
+  std::string finishedCoverPath;
   uint32_t readingSeconds = 0;
   size_t selectedIndex = 0;
   bool prepared = false;
+  mutable CoverTileCache finishedCoverCache;
+  mutable std::vector<CoverTileCache> recommendationCoverCaches;
 
   void addCandidate(const RecentBook& book, const std::string& currentPath);
 

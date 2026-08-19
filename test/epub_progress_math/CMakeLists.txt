@@ -1,0 +1,4 @@
+add_executable(epub_progress_math_tests EpubProgressMathTest.cpp)
+target_link_libraries(epub_progress_math_tests PRIVATE GTest::gtest_main crosspoint_test_common)
+target_include_directories(epub_progress_math_tests PRIVATE ${REPO_ROOT}/src/activities/reader)
+gtest_discover_tests(epub_progress_math_tests)

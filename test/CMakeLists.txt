@@ -54,6 +54,7 @@ add_subdirectory(stardict)
 add_subdirectory(dictionary_word_navigation)
 add_subdirectory(layout_geometry)
 add_subdirectory(epub_image_reference)
+add_subdirectory(epub_progress_math)
 add_subdirectory(achievement_model)
 # Compile the native PDF adapter in the regular host test build. The harness
 # takes a corpus file at runtime, so it is a build/ABI gate rather than a

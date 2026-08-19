@@ -971,6 +971,9 @@ float Epub::calculateProgress(const int currentSpineIndex, const float currentSp
   if (bookSize == 0) {
     return 0.0f;
   }
+  const int spineCount = getSpineItemsCount();
+  if (currentSpineIndex >= spineCount) return spineCount > 0 ? 1.0f : 0.0f;
+  if (currentSpineIndex < 0) return 0.0f;
   const size_t prevChapterSize = (currentSpineIndex >= 1) ? getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
   const size_t curChapterSize = getCumulativeSpineItemSize(currentSpineIndex) - prevChapterSize;
   const float sectionProgSize = currentSpineRead * static_cast<float>(curChapterSize);

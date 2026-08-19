@@ -56,6 +56,7 @@ struct CachedHomeDetails {
   uint32_t readingSeconds = 0;
   uint32_t currentPage = 0;
   uint32_t totalPages = 0;
+  bool completed = false;
 };
 
 CachedHomeDetails cachedHomeDetails;
@@ -213,9 +214,14 @@ void HomeActivity::loadRecentBookDetails() {
     readingSummary.readingSeconds = cachedHomeDetails.readingSeconds;
     readingSummary.currentPage = cachedHomeDetails.currentPage;
     readingSummary.totalPages = cachedHomeDetails.totalPages;
+    if (cachedHomeDetails.completed && readingSummary.totalPages > 0) {
+      readingSummary.progressPercent = 100;
+      readingSummary.currentPage = readingSummary.totalPages;
+    }
     return;
   }
-  ScopedCleanup persistDetails{[this, &book] {
+  bool completed = false;
+  ScopedCleanup persistDetails{[this, &book, &completed] {
     cachedHomeDetails.valid = true;
     cachedHomeDetails.bookPath = book.path;
     cachedHomeDetails.coverPath = homeCoverPath;
@@ -224,6 +230,7 @@ void HomeActivity::loadRecentBookDetails() {
     cachedHomeDetails.readingSeconds = readingSummary.readingSeconds;
     cachedHomeDetails.currentPage = readingSummary.currentPage;
     cachedHomeDetails.totalPages = readingSummary.totalPages;
+    cachedHomeDetails.completed = completed;
   }};
   const std::string displayTitle = book.title.empty() ? filenameWithoutExtension(book.path) : book.title;
   // Generate the largest thumbnail needed by the cover-present AUTO layout.
@@ -262,6 +269,7 @@ void HomeActivity::loadRecentBookDetails() {
 
   if (cachePath.empty()) return;
   const BookReadingStats stats = BookReadingStats::load(cachePath);
+  completed = stats.isCompleted;
   readingSummary.readingSeconds = stats.totalReadingSeconds;
 
   if (!epubCompatible) {
@@ -282,6 +290,13 @@ void HomeActivity::loadRecentBookDetails() {
     if (bytesRead >= 15) {
       readingSummary.currentPage = readLe32(data + 7);
       readingSummary.totalPages = readLe32(data + 11);
+    }
+    // Older builds could mark a book complete while leaving the denormalized
+    // page estimate one page short (for example, 752 / 753). Completion is the
+    // authoritative state, so repair that stale presentation immediately.
+    if (completed && readingSummary.totalPages > 0) {
+      readingSummary.progressPercent = 100;
+      readingSummary.currentPage = readingSummary.totalPages;
     }
     if (!homeCoverPath.empty()) return;
   } else if (bytesRead != 4 && bytesRead != 6) {
@@ -334,6 +349,10 @@ void HomeActivity::loadRecentBookDetails() {
   readingSummary.currentPage = clampPageCount(std::round(readBytes / bytesPerPage));
   if (readingSummary.totalPages > 0) {
     readingSummary.currentPage = std::clamp<uint32_t>(readingSummary.currentPage, 1, readingSummary.totalPages);
+    if (completed) {
+      readingSummary.progressPercent = 100;
+      readingSummary.currentPage = readingSummary.totalPages;
+    }
   }
 }
 

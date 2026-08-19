@@ -124,6 +124,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          notes_file="docs/releases/${{ github.ref_name }}.md"
+          if [ -f "$notes_file" ]; then
+            release_notes=(--notes-file "$notes_file")
+          else
+            release_notes=(--notes "Universal ESP32-C3 firmware for XTEINK X3 and X4. The device selects its panel, geometry, battery backend, RTC/IMU and power rails at boot.")
+          fi
           # Idempotent: a release may already exist if the tag was cut by hand
           # (gh release create also creates the tag, which fires this workflow).
           # In that case attach/replace the CI-built binary instead of failing.
@@ -140,7 +146,7 @@ jobs:
             gh release create "${{ github.ref_name }}" \
               --repo "${{ github.repository }}" \
               --title "InkPoint X ${{ github.ref_name }}" \
-              --notes "Universal ESP32-C3 firmware for XTEINK X3 and X4. The X3/X4-labelled files are byte-identical aliases of firmware.bin; the device, panel controller, geometry, battery backend, RTC/IMU and power rails are selected at boot." \
+              "${release_notes[@]}" \
               .pio/build/gh_release/firmware.bin \
               .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3-X4.bin \
               .pio/build/gh_release/InkPointX-${{ github.ref_name }}-X3.bin \

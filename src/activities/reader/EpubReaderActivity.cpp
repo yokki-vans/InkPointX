@@ -1236,12 +1236,20 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
     } else {
+      const int completedChapterPageCount = section->pageCount;
+      const bool completesBook = currentSpineIndex + 1 >= epub->getSpineItemsCount();
       // We don't want to delete the section mid-render, so grab the semaphore
       {
         RenderLock lock(*this);
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
+      }
+      // Persist the terminal position explicitly. Previously the last section
+      // was already gone when onExit() flushed progress, leaving the Home card
+      // permanently at values such as 752/753 despite the completion screen.
+      if (completesBook && !saveProgress(epub->getSpineItemsCount(), 0, completedChapterPageCount)) {
+        LOG_ERR("ERS", "Failed to save completed-book progress");
       }
     }
   } else {

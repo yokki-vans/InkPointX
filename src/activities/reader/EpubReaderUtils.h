@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "EpubProgressMath.h"
 #include "ProgressFile.h"
 
 namespace EpubReaderUtils {
@@ -36,26 +37,26 @@ inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int p
   data[3] = (pageNumber >> 8) & 0xFF;
   data[4] = pageCount & 0xFF;
   data[5] = (pageCount >> 8) & 0xFF;
+  const int spineCount = epub.getSpineItemsCount();
+  const bool finished = spineCount > 0 && spineIndex >= spineCount;
   const float chapterProgress = pageCount > 0 ? static_cast<float>(pageNumber) / pageCount : 0.0f;
-  const float bookProgress = epub.calculateProgress(spineIndex, std::clamp(chapterProgress, 0.0f, 1.0f));
+  const float bookProgress =
+      finished ? 1.0f : epub.calculateProgress(spineIndex, std::clamp(chapterProgress, 0.0f, 1.0f));
   data[6] = static_cast<uint8_t>(std::clamp(static_cast<int>(bookProgress * 100.0f + 0.5f), 0, 100));
 
   uint32_t currentBookPage = 0;
   uint32_t totalBookPages = 0;
-  if (pageCount > 0 && spineIndex < static_cast<int>(epub.getSpineItemsCount())) {
-    const size_t previousBytes = spineIndex > 0 ? epub.getCumulativeSpineItemSize(spineIndex - 1) : 0;
-    const size_t cumulativeBytes = epub.getCumulativeSpineItemSize(spineIndex);
+  if (pageCount > 0 && spineCount > 0) {
+    const int estimateSpine = finished ? spineCount - 1 : std::clamp(spineIndex, 0, spineCount - 1);
+    const size_t previousBytes = estimateSpine > 0 ? epub.getCumulativeSpineItemSize(estimateSpine - 1) : 0;
+    const size_t cumulativeBytes = epub.getCumulativeSpineItemSize(estimateSpine);
     const size_t chapterBytes = cumulativeBytes > previousBytes ? cumulativeBytes - previousBytes : 0;
     const size_t bookBytes = epub.getBookSize();
-    if (chapterBytes > 0 && bookBytes > 0) {
-      const double bytesPerPage = static_cast<double>(chapterBytes) / pageCount;
-      const double totalEstimate = std::ceil(static_cast<double>(bookBytes) / bytesPerPage);
-      const double currentEstimate =
-          std::round((static_cast<double>(previousBytes) + chapterBytes * chapterProgress) / bytesPerPage);
-      totalBookPages = static_cast<uint32_t>(std::min(totalEstimate, static_cast<double>(UINT32_MAX)));
-      currentBookPage = static_cast<uint32_t>(std::min(currentEstimate, static_cast<double>(UINT32_MAX)));
-      if (totalBookPages > 0) currentBookPage = std::clamp<uint32_t>(currentBookPage, 1, totalBookPages);
-    }
+    const bool lastReadablePage = estimateSpine == spineCount - 1 && pageNumber >= pageCount - 1;
+    const auto estimate = EpubProgressMath::estimatePages(previousBytes, chapterBytes, bookBytes, pageNumber, pageCount,
+                                                          finished || lastReadablePage);
+    currentBookPage = estimate.current;
+    totalBookPages = estimate.total;
   }
   writeLe32(data + 7, currentBookPage);
   writeLe32(data + 11, totalBookPages);
