@@ -20,10 +20,14 @@
 </p>
 
 > [!IMPORTANT]
-> The `main` branch contains the current stable source, while `dev` is used for active development. For a prebuilt,
-> user-facing binary, use the [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically
-> want to test development changes. Devices already running InkPoint X can update over the air from
+> `dev` is the canonical development and release branch. Firmware tags must point to commits already merged into
+> `dev`; the release workflow rejects tags cut from `main` or feature branches. For a prebuilt, user-facing binary,
+> use the [Releases](https://github.com/yokki-vans/InkPointX/releases) page. Devices already running InkPoint X update from
 > **Settings → System → Check for updates**.
+
+> [!NOTE]
+> v2.3.0–v2.3.3 were withdrawn after field regressions. v2.3.4 restores the
+> last known-good v2.2.28 runtime from `dev` so affected devices can recover by OTA.
 
 ## Overview
 
@@ -524,13 +528,16 @@ the OTA slot's limit.
 
 ## Releases and OTA
 
-Pushing a tag builds the universal `gh_release` image and publishes `firmware.bin`, the stock-recovery alias
+Pushing a version tag for a commit already on `dev` builds the universal `gh_release` image and publishes `firmware.bin`, the stock-recovery alias
 `update.bin`, X3/X4-labelled aliases, and SHA-256 checksums. The on-device updater reads `releases/latest` and looks
 for exactly `firmware.bin`. It downloads to a
 temporary SD-card file, requires an exact size and GitHub release SHA-256 match, validates the complete ESP image,
 and only then writes the inactive OTA slot. Network operations retry three times; a failed download or validation
 never selects the candidate image. Version comparison is semantic — major, then minor, then patch — with release
 candidates treated as older than the final tag.
+
+The workflow also requires the tag to match `platformio.ini` and a non-empty
+`docs/releases/<tag>.md`. See the [release process](docs/RELEASE_PROCESS.md).
 
 ## Repository layout
 

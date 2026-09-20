@@ -2,7 +2,11 @@ name: Compile Release
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
+
+concurrency:
+  group: firmware-release
+  cancel-in-progress: false
 
 permissions:
   contents: write  # required to publish the release from this workflow
@@ -13,7 +17,35 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           submodules: recursive
+
+      - name: Verify release commit is already on dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev
+          release_commit="$(git rev-list -n 1 "${GITHUB_REF}")"
+          dev_commit="$(git rev-parse refs/remotes/origin/dev)"
+          if ! git merge-base --is-ancestor "${release_commit}" "${dev_commit}"; then
+            echo "::error::Release commit ${release_commit} is not on origin/dev (${dev_commit})"
+            exit 1
+          fi
+
+      - name: Verify release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(awk -F= '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' platformio.ini)"
+          if [ "${GITHUB_REF_NAME}" != "${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match platformio.ini version ${version}"
+            exit 1
+          fi
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ ! -s "${notes_file}" ]; then
+            echo "::error::Missing release notes: ${notes_file}"
+            exit 1
+          fi
 
       - uses: actions/setup-python@v6
         with:
@@ -49,16 +81,6 @@ jobs:
       - name: Run static analysis
         run: pio check --fail-on-defect medium
 
-      - name: Verify tag matches firmware version
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(awk -F= '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' platformio.ini)"
-          if [ "${GITHUB_REF_NAME}" != "${version}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match platformio.ini version ${version}"
-            exit 1
-          fi
-
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
@@ -68,6 +90,9 @@ jobs:
 
       - name: Build universal X3/X4 firmware
         run: pio run -e gh_release
+
+      - name: Verify embedded firmware version
+        run: python scripts/verify_firmware_version.py .pio/build/gh_release/firmware.bin "${GITHUB_REF_NAME}"
 
       - name: Validate localization and generated UI fonts
         run: python scripts/validate_i18n.py
@@ -130,11 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           notes_file="docs/releases/${{ github.ref_name }}.md"
-          if [ -f "$notes_file" ]; then
-            release_notes=(--notes-file "$notes_file")
-          else
-            release_notes=(--notes "Universal ESP32-C3 firmware for XTEINK X3 and X4. The device selects its panel, geometry, battery backend, RTC/IMU and power rails at boot.")
-          fi
+          release_notes=(--notes-file "$notes_file")
           # Idempotent: a release may already exist if the tag was cut by hand
           # (gh release create also creates the tag, which fires this workflow).
           # In that case attach/replace the CI-built binary instead of failing.
