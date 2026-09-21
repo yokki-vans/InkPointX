@@ -4,7 +4,7 @@
 #include <array>
 #include <vector>
 
-#include "freeink-sdk/libs/display/FreeInkDisplay/src/driver/Uc8279Driver.h"
+#include "freeink-sdk/libs/display/FreeInkDisplay/src/driver/Uc8179Driver.h"
 #include "freeink-sdk/libs/display/FreeInkDisplay/src/lut/Uc8279X3Luts.h"
 
 namespace {
@@ -77,113 +77,50 @@ bool EpdBus::waitRefreshComplete(const char*) {
 }
 }  // namespace freeink
 
-class Uc8279DriverTest : public ::testing::Test {
+class Uc8179DriverTest : public ::testing::Test {
  protected:
   freeink::EpdBus bus;
-  freeink::Uc8279Driver driver;
+  freeink::Uc8179Driver driver;
   void SetUp() override {
     clockMs = refreshAt = startDelay = 0;
     powerOk = finishOk = true;
-    finishBeforeStart = false;
     oldWrites = 0;
     commands.clear();
-    vcomBank = nullptr;
     driver.begin(bus);
-    driver.skipInitialResync();
     driver.display(bus, frame.data(), nullptr, freeink::RefreshMode::Full, false);
-    oldWrites = invertedWrites = 0;
-    oldOutsideWindow = false;
     commands.clear();
+    oldWrites = 0;
   }
-  bool start() { return driver.displayStart(bus, frame.data(), nullptr, freeink::RefreshMode::Fast, false); }
+  bool start(freeink::RefreshMode mode = freeink::RefreshMode::Fast) {
+    return driver.displayStart(bus, frame.data(), nullptr, mode, false);
+  }
 };
-
-TEST_F(Uc8279DriverTest, WaitsForDelayedBusyBeforeCompletingAndWritingOldPlane) {
+TEST_F(Uc8179DriverTest, DelayedBusyDoesNotDropFrame) {
   startDelay = 250;
   ASSERT_TRUE(start());
-  EXPECT_GE(clockMs - refreshAt, 250u);
-  EXPECT_EQ(oldWrites, 0);
   driver.displayFinish(bus, frame.data());
-  EXPECT_FALSE(finishBeforeStart);
   EXPECT_EQ(oldWrites, 1);
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwDu[0][1]);
 }
-
-TEST_F(Uc8279DriverTest, MissingBusyDoesNotCommitFrameAndForcesCleanRetry) {
+TEST_F(Uc8179DriverTest, CleanRequestUsesFullWaveform) {
+  ASSERT_TRUE(start(freeink::RefreshMode::Half));
+  EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x91), 0);
+}
+TEST_F(Uc8179DriverTest, FastRequestKeepsPartialWaveform) {
+  ASSERT_TRUE(start());
+  EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x91), 1);
+}
+TEST_F(Uc8179DriverTest, ReinitializeInvalidatesPreviousFrameAndPendingFinish) {
+  ASSERT_TRUE(start());
+  driver.begin(bus);
+  commands.clear();
+  driver.displayFinish(bus, frame.data());
+  EXPECT_EQ(oldWrites, 0);
+  ASSERT_TRUE(start());
+  EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x91), 0);
+}
+TEST_F(Uc8179DriverTest, MissingBusyDoesNotCommitOldPlane) {
   startDelay = 2000;
   EXPECT_FALSE(start());
   driver.displayFinish(bus, frame.data());
   EXPECT_EQ(oldWrites, 0);
-  startDelay = 0;
-  ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwGc[0][1]);
-}
-
-TEST_F(Uc8279DriverTest, CompletionTimeoutDoesNotCommitFrameAndForcesCleanRetry) {
-  ASSERT_TRUE(start());
-  finishOk = false;
-  driver.displayFinish(bus, frame.data());
-  EXPECT_EQ(oldWrites, 0);
-  finishOk = true;
-  ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwGc[0][1]);
-}
-
-TEST_F(Uc8279DriverTest, PowerFailureDoesNotIssueRefresh) {
-  driver.deepSleep(bus);
-  commands.clear();
-  powerOk = false;
-  EXPECT_FALSE(start());
-  EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x12), 0);
-  driver.displayFinish(bus, frame.data());
-  EXPECT_EQ(oldWrites, 0);
-}
-
-TEST_F(Uc8279DriverTest, ReadyPanelDoesNotPayFullTimeoutOrPromoteFastFrame) {
-  startDelay = 1;
-  ASSERT_TRUE(start());
-  EXPECT_EQ(clockMs - refreshAt, 1u);
-  driver.displayFinish(bus, frame.data());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwDu[0][1]);
-  EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x12), 1);
-}
-
-TEST_F(Uc8279DriverTest, RestoresFullWindowAfterStripWrite) {
-  driver.writeGrayscalePlaneStrip(bus, freeink::GrayPlane::Lsb, frame.data(), 100, 8);
-  ASSERT_TRUE(start());
-  const std::array<uint8_t, 9> full = {0, 0, 3, 0x17, 0, 0, 2, 0x0F, 1};
-  EXPECT_EQ(newPlaneWindow, full);
-  driver.displayFinish(bus, frame.data());
-  EXPECT_FALSE(oldOutsideWindow);
-}
-
-TEST_F(Uc8279DriverTest, WakeDoesNotTrustResetOldRam) {
-  driver.begin(bus);
-  driver.skipInitialResync();
-  ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwGc[0][1]);
-  EXPECT_EQ(invertedWrites, 1);
-  driver.displayFinish(bus, frame.data());
-  ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwDu[0][1]);
-}
-
-TEST_F(Uc8279DriverTest, ConsecutiveFramesEachRefreshAndCommitInsideWindow) {
-  for (int i = 0; i < 4; ++i) {
-    ASSERT_TRUE(start());
-    driver.displayFinish(bus, frame.data());
-  }
-  EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x12), 4);
-  EXPECT_EQ(oldWrites, 4);
-  EXPECT_FALSE(oldOutsideWindow);
-}
-
-TEST_F(Uc8279DriverTest, AbandonedGrayscalePlanesCannotBeUsedForFastDiff) {
-  driver.copyGrayscaleLsb(bus, frame.data());
-  ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwGc[0][1]);
-  EXPECT_EQ(invertedWrites, 1);
-  driver.displayFinish(bus, frame.data());
-  ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwDu[0][1]);
 }

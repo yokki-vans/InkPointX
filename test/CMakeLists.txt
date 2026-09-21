@@ -67,3 +67,5 @@ add_subdirectory(pdf_native)
 # Mutation fuzzer for ZIP/XTC readers. Also corpus-driven, so likewise a
 # build gate here rather than a zero-argument CTest case.
 add_subdirectory(format_fuzz)
+
+add_subdirectory(epd_bus)
