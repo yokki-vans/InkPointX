@@ -109,14 +109,18 @@ TEST_F(Uc8279DriverTest, WaitsForDelayedBusyBeforeCompletingAndWritingOldPlane) 
   EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwDu[0][1]);
 }
 
-TEST_F(Uc8279DriverTest, MissingBusyDoesNotCommitFrameAndForcesCleanRetry) {
-  startDelay = 2000;
+TEST_F(Uc8279DriverTest, MissingBusyDoesNotCommitFrameAndKeepsBaselineForFastRetry) {
+  startDelay = 5000;  // beyond x3_refresh::BUSY_START_TIMEOUT_MS (3 s)
   EXPECT_FALSE(start());
   driver.displayFinish(bus, frame.data());
   EXPECT_EQ(oldWrites, 0);
   startDelay = 0;
   ASSERT_TRUE(start());
-  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwGc[0][1]);
+  // A start-handshake timeout means no waveform ever ran: the OLD plane still
+  // matches the panel, so the follow-up stays on the fast DU path instead of
+  // being escalated to a GC scrub (FreeInkDisplay's soft retry relies on this
+  // to keep slow-start navigation frames blink-free).
+  EXPECT_EQ(vcomBank, &freeink::kUc8279X3_BwDu[0][1]);
 }
 
 TEST_F(Uc8279DriverTest, CompletionTimeoutDoesNotCommitFrameAndForcesCleanRetry) {

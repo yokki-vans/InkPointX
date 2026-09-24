@@ -22,6 +22,9 @@ enum class SettingAction {
   ClearCache,
   CheckForUpdates,
   SdFirmwareUpdate,
+#if defined(INKPOINTX_DEVICE_QA)
+  EpdTrace,
+#endif
   Language,
   InterfaceFont,
   AccentFont,

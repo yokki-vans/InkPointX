@@ -25,6 +25,9 @@
 #include "OtaUpdateActivity.h"
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
+#if defined(INKPOINTX_DEVICE_QA)
+#include "EpdTraceActivity.h"
+#endif
 #include "SettingsList.h"
 #include "SettingsReset.h"
 #include "StatusBarSettingsActivity.h"
@@ -130,6 +133,9 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
+#if defined(INKPOINTX_DEVICE_QA)
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_EPD_TRACE_VIEW, SettingAction::EpdTrace));
+#endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DEVICE_INFO, SettingAction::DeviceInfo));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_RESET_SETTINGS, SettingAction::ResetSettings));
 
@@ -286,6 +292,11 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::SdFirmwareUpdate:
         startActivityForResult(makeUniqueNoThrow<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
+#if defined(INKPOINTX_DEVICE_QA)
+      case SettingAction::EpdTrace:
+        startActivityForResult(makeUniqueNoThrow<EpdTraceActivity>(renderer, mappedInput), resultHandler);
+        break;
+#endif
       case SettingAction::DownloadFonts:
         startActivityForResult(makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) {

@@ -119,7 +119,7 @@ TEST_F(Uc8179DriverTest, ReinitializeInvalidatesPreviousFrameAndPendingFinish) {
   EXPECT_EQ(std::count(commands.begin(), commands.end(), 0x91), 0);
 }
 TEST_F(Uc8179DriverTest, MissingBusyDoesNotCommitOldPlane) {
-  startDelay = 2000;
+  startDelay = 5000;  // beyond x3_refresh::BUSY_START_TIMEOUT_MS (3 s)
   EXPECT_FALSE(start());
   driver.displayFinish(bus, frame.data());
   EXPECT_EQ(oldWrites, 0);

@@ -262,7 +262,7 @@ void ActivityManager::showPendingAchievement() {
   const std::string& activityName = currentActivity->name;
   if (activityName == "AchievementUnlock" || activityName == "Boot" || activityName == "Sleep" ||
       activityName == "Crash" || activityName == "OtaUpdate" || activityName == "SdFirmwareUpdate" ||
-      activityName == "FullScreenMessage") {
+      activityName == "EpdTrace" || activityName == "FullScreenMessage") {
     return;
   }
 
@@ -278,7 +278,7 @@ void ActivityManager::showPendingReadingGoal() {
   const std::string& activityName = currentActivity->name;
   if (activityName == "AchievementUnlock" || activityName == "Boot" || activityName == "Sleep" ||
       activityName == "Crash" || activityName == "OtaUpdate" || activityName == "SdFirmwareUpdate" ||
-      activityName == "FullScreenMessage") {
+      activityName == "EpdTrace" || activityName == "FullScreenMessage") {
     return;
   }
 
